@@ -15,10 +15,10 @@ import {
 } from '@/components/ui/tabs';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { logout } from '@/app/actions';
 import { UploadDialog } from './upload-dialog';
 import { DeleteButton } from './delete-button';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 
 type GalleryClientProps = {
   photos: string[];
@@ -32,6 +32,27 @@ export function GalleryClient({
   documents,
 }: GalleryClientProps) {
   const [activeTab, setActiveTab] = useState('photos');
+  const router = useRouter();
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    const isAdmin = localStorage.getItem('is_admin') === 'true';
+    if (!isAdmin) {
+      router.replace('/login');
+    } else {
+      setIsClient(true);
+    }
+  }, [router]);
+
+  const handleLogout = () => {
+    localStorage.removeItem('is_admin');
+    router.push('/login');
+  };
+
+  if (!isClient) {
+    // Render nothing or a loading spinner until the client-side auth check is complete
+    return null;
+  }
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -39,12 +60,10 @@ export function GalleryClient({
         <h1 className="text-3xl font-bold font-headline text-primary">
           Static Gallery
         </h1>
-        <form action={logout}>
-          <Button variant="outline" type="submit">
-            <LogOut className="mr-2 h-4 w-4" />
-            Logout
-          </Button>
-        </form>
+        <Button variant="outline" onClick={handleLogout}>
+          <LogOut className="mr-2 h-4 w-4" />
+          Logout
+        </Button>
       </header>
 
       <Tabs defaultValue="photos" value={activeTab} onValueChange={setActiveTab}>

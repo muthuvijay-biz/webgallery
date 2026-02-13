@@ -1,7 +1,7 @@
 'use client';
 
 import { useFormStatus } from 'react-dom';
-import { useActionState } from 'react';
+import { useActionState, useEffect } from 'react';
 import { login } from '@/app/actions';
 import {
   Card,
@@ -16,6 +16,8 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { LogIn } from 'lucide-react';
 import { Alert, AlertDescription } from './ui/alert';
+import { useRouter } from 'next/navigation';
+import { useToast } from '@/hooks/use-toast';
 
 function SubmitButton() {
   const { pending } = useFormStatus();
@@ -29,6 +31,19 @@ function SubmitButton() {
 
 export function LoginForm() {
   const [state, formAction] = useActionState(login, undefined);
+  const router = useRouter();
+  const { toast } = useToast();
+
+  useEffect(() => {
+    if (state?.success) {
+      toast({
+        title: 'Success!',
+        description: state.message,
+      });
+      localStorage.setItem('is_admin', 'true');
+      router.push('/');
+    }
+  }, [state, router, toast]);
 
   return (
     <Card className="w-full max-w-sm">
@@ -56,10 +71,9 @@ export function LoginForm() {
               name="password"
               type="password"
               required
-              defaultValue="password"
             />
           </div>
-          {state?.message && (
+          {state?.message && !state.success && (
              <Alert variant="destructive" className="mt-4">
                <AlertDescription>{state.message}</AlertDescription>
              </Alert>

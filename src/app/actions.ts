@@ -1,7 +1,5 @@
 'use server';
 
-import { cookies } from 'next/headers';
-import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { ADMIN_USER } from '@/lib/auth';
 import { writeFile, mkdir, unlink } from 'fs/promises';
@@ -21,24 +19,13 @@ export async function login(prevState: any, formData: FormData) {
       parsed.username === ADMIN_USER.username &&
       parsed.password === ADMIN_USER.password
     ) {
-      cookies().set('is_admin', 'true', {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        path: '/',
-      });
+      return { success: true, message: 'Login successful!' };
     } else {
-      return { message: 'Invalid username or password' };
+      return { success: false, message: 'Invalid username or password' };
     }
   } catch (error) {
-    return { message: 'An error occurred' };
+    return { success: false, message: 'An error occurred' };
   }
-  redirect('/');
-}
-
-export async function logout() {
-  cookies().delete('is_admin');
-  redirect('/login');
 }
 
 export async function uploadFile(prevState: any, formData: FormData) {
