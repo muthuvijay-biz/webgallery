@@ -26,32 +26,38 @@ type GalleryClientProps = {
   photos: string[];
   videos: string[];
   documents: string[];
+  isAdmin?: boolean;
 };
 
 export function GalleryClient({
   photos,
   videos,
   documents,
+  isAdmin = false,
 }: GalleryClientProps) {
   const [activeTab, setActiveTab] = useState('photos');
   const router = useRouter();
   const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
-    const isAdmin = localStorage.getItem('is_admin') === 'true';
-    if (!isAdmin) {
-      router.replace('/login');
+    if (isAdmin) {
+      const authenticated = localStorage.getItem('is_admin') === 'true';
+      if (!authenticated) {
+        router.replace('/securelogin');
+      } else {
+        setIsClient(true);
+      }
     } else {
       setIsClient(true);
     }
-  }, [router]);
+  }, [router, isAdmin]);
 
   const handleLogout = () => {
     localStorage.removeItem('is_admin');
-    router.push('/login');
+    router.push('/securelogin');
   };
 
-  if (!isClient) {
+  if (isAdmin && !isClient) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-50">
         <div className="flex items-center gap-2">
@@ -70,10 +76,12 @@ export function GalleryClient({
         <h1 className="text-3xl font-bold font-headline text-primary">
           Static Gallery
         </h1>
-        <Button variant="outline" onClick={handleLogout}>
-          <LogOut className="mr-2 h-4 w-4" />
-          Logout
-        </Button>
+        {isAdmin && (
+          <Button variant="outline" onClick={handleLogout}>
+            <LogOut className="mr-2 h-4 w-4" />
+            Logout
+          </Button>
+        )}
       </header>
 
       <Tabs defaultValue="photos" value={activeTab} onValueChange={setActiveTab}>
@@ -92,11 +100,13 @@ export function GalleryClient({
               Documents ({documents.length})
             </TabsTrigger>
           </TabsList>
-          <div className="w-full sm:w-auto">
-            {activeTab === 'photos' && <UploadDialog type="images" />}
-            {activeTab === 'videos' && <UploadDialog type="videos" />}
-            {activeTab === 'documents' && <UploadDialog type="documents" />}
-          </div>
+          {isAdmin && (
+            <div className="w-full sm:w-auto">
+              {activeTab === 'photos' && <UploadDialog type="images" />}
+              {activeTab === 'videos' && <UploadDialog type="videos" />}
+              {activeTab === 'documents' && <UploadDialog type="documents" />}
+            </div>
+          )}
         </div>
 
         <TabsContent value="photos">
@@ -111,9 +121,11 @@ export function GalleryClient({
                     className="object-cover"
                     sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, (max-width: 1024px) 33vw, (max-width: 1280px) 25vw, 20vw"
                   />
-                  <div className="absolute top-2 right-2">
-                    <DeleteButton fileName={photo} type="images" />
-                  </div>
+                  {isAdmin && (
+                    <div className="absolute top-2 right-2">
+                      <DeleteButton fileName={photo} type="images" />
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             ))}
@@ -131,9 +143,11 @@ export function GalleryClient({
                     src={`/uploads/videos/${video}`}
                     className="w-full h-full"
                   />
-                  <div className="absolute top-2 right-2">
-                    <DeleteButton fileName={video} type="videos" />
-                  </div>
+                  {isAdmin && (
+                    <div className="absolute top-2 right-2">
+                      <DeleteButton fileName={video} type="videos" />
+                    </div>
+                  )}
                 </CardContent>
                 <CardFooter className="p-2">
                     <p className="text-sm truncate font-medium">{video}</p>
@@ -160,7 +174,7 @@ export function GalleryClient({
                       {doc}
                     </a>
                   </div>
-                  <DeleteButton fileName={doc} type="documents" />
+                  {isAdmin && <DeleteButton fileName={doc} type="documents" />}
                 </CardContent>
               </Card>
             ))}
@@ -168,7 +182,7 @@ export function GalleryClient({
           </div>
         </TabsContent>
       </Tabs>
-      <UploadStatusPanel />
+      {isAdmin && <UploadStatusPanel />}
     </div>
   );
 }

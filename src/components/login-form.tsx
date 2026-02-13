@@ -41,7 +41,7 @@ export function LoginForm() {
         description: state.message,
       });
       localStorage.setItem('is_admin', 'true');
-      router.push('/');
+      router.push('/uploads');
     }
   }, [state, router, toast]);
 

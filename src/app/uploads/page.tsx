@@ -16,14 +16,14 @@ async function getFiles(type: string): Promise<string[]> {
   }
 }
 
-export default async function GalleryPage() {
+export default async function UploadsPage() {
   const photos = await getFiles('images');
   const videos = await getFiles('videos');
   const documents = await getFiles('documents');
 
   return (
     <div className="min-h-screen bg-background">
-      <GalleryClient photos={photos} videos={videos} documents={documents} isAdmin={false} />
+      <GalleryClient photos={photos} videos={videos} documents={documents} isAdmin={true} />
     </div>
   );
 }

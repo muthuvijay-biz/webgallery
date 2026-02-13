@@ -48,6 +48,7 @@ export async function uploadFile(prevState: any, formData: FormData) {
     await mkdir(uploadDir, { recursive: true });
     await writeFile(path, buffer);
     revalidatePath('/');
+    revalidatePath('/uploads');
     return { success: true, message: 'File uploaded successfully!' };
   } catch (e) {
     return { success: false, message: 'Failed to upload file.' };
@@ -65,6 +66,7 @@ export async function deleteFile(fileName: string, type: string) {
   try {
     await unlink(path);
     revalidatePath('/');
+    revalidatePath('/uploads');
     return { success: true, message: 'File deleted successfully.' };
   } catch (e) {
     return { success: false, message: 'Failed to delete file.' };
