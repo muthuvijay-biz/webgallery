@@ -1,6 +1,6 @@
 'use client';
 
-import { uploadFile } from '@/app/actions';
+import { uploadFile as serverUploadFile } from '@/app/actions';
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 
 type UploadStatus = 'pending' | 'uploading' | 'success' | 'error';
@@ -15,7 +15,11 @@ type UploadingFile = {
 
 type UploadContextType = {
   uploadingFiles: UploadingFile[];
-  uploadFiles: (files: File[], type: 'images' | 'videos' | 'documents') => void;
+  uploadFile: (
+    file: File,
+    description: string,
+    type: 'images' | 'videos' | 'documents'
+  ) => void;
   clearCompleted: () => void;
   clearAll: () => void;
 };
@@ -25,61 +29,59 @@ const UploadContext = createContext<UploadContextType | undefined>(undefined);
 export function UploadProvider({ children }: { children: ReactNode }) {
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
 
-  const uploadFiles = async (
-    files: File[],
+  const uploadFile = async (
+    file: File,
+    description: string,
     type: 'images' | 'videos' | 'documents'
   ) => {
-    const newFiles: UploadingFile[] = Array.from(files).map((file) => ({
+    const newFile: UploadingFile = {
       id: `${file.name}-${new Date().getTime()}`,
       file,
       status: 'pending',
       progress: 0,
-    }));
+    };
 
-    setUploadingFiles((prev) => [...newFiles, ...prev]);
+    setUploadingFiles((prev) => [newFile, ...prev]);
 
-    for (const uploadingFile of newFiles) {
+    setUploadingFiles((prev) =>
+      prev.map((f) =>
+        f.id === newFile.id ? { ...f, status: 'uploading', progress: 5 } : f
+      )
+    );
+
+    // Simulate progress
+    const progressInterval = setInterval(() => {
       setUploadingFiles((prev) =>
-        prev.map((f) =>
-          f.id === uploadingFile.id
-            ? { ...f, status: 'uploading', progress: 5 }
-            : f
-        )
+        prev.map((f) => {
+          if (f.id === newFile.id && f.progress < 90) {
+            return { ...f, progress: f.progress + 5 };
+          }
+          return f;
+        })
       );
+    }, 200);
 
-      // Simulate progress
-      const progressInterval = setInterval(() => {
-        setUploadingFiles((prev) =>
-          prev.map((f) => {
-            if (f.id === uploadingFile.id && f.progress < 90) {
-              return { ...f, progress: f.progress + 5 };
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('type', type);
+    formData.append('description', description);
+
+    const result = await serverUploadFile(null, formData);
+
+    clearInterval(progressInterval);
+
+    setUploadingFiles((prev) =>
+      prev.map((f) =>
+        f.id === newFile.id
+          ? {
+              ...f,
+              status: result.success ? 'success' : 'error',
+              progress: 100,
+              message: result.message,
             }
-            return f;
-          })
-        );
-      }, 200);
-
-      const formData = new FormData();
-      formData.append('file', uploadingFile.file);
-      formData.append('type', type);
-
-      const result = await uploadFile(null, formData);
-
-      clearInterval(progressInterval);
-
-      setUploadingFiles((prev) =>
-        prev.map((f) =>
-          f.id === uploadingFile.id
-            ? {
-                ...f,
-                status: result.success ? 'success' : 'error',
-                progress: 100,
-                message: result.message,
-              }
-            : f
-        )
-      );
-    }
+          : f
+      )
+    );
   };
 
   const clearCompleted = () => {
@@ -94,7 +96,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
 
   return (
     <UploadContext.Provider
-      value={{ uploadingFiles, uploadFiles, clearCompleted, clearAll }}
+      value={{ uploadingFiles, uploadFile, clearCompleted, clearAll }}
     >
       {children}
     </UploadContext.Provider>

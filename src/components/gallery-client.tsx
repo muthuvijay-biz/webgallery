@@ -115,11 +115,11 @@ export function GalleryClient({
         <TabsContent value="photos">
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {photos.map((photo) => (
-              <Card key={photo.name} className="overflow-hidden group animate-in fade-in-0 zoom-in-95 duration-500">
+              <Card key={photo['File Name']} className="overflow-hidden group animate-in fade-in-0 zoom-in-95 duration-500">
                 <CardContent className="p-0 relative aspect-square">
                   <Image
                     src={photo.path}
-                    alt={photo.name}
+                    alt={photo['File Name']}
                     fill
                     className="object-cover"
                     sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, (max-width: 1024px) 33vw, (max-width: 1280px) 25vw, 20vw"
@@ -132,12 +132,13 @@ export function GalleryClient({
                       </Button>
                     </FileDetailsModal>
                     {isAdmin && (
-                      <DeleteButton fileName={photo.name} type="images" />
+                      <DeleteButton fileName={photo['File Name']} type="images" />
                     )}
                   </div>
                 </CardContent>
                 <CardFooter className="p-2 flex-col items-start">
                   <p className="text-sm truncate font-medium">{photo['File Name']}</p>
+                  {photo['Description'] && <p className="text-xs text-muted-foreground truncate">{photo['Description']}</p>}
                   {photo['Capture Date'] && <p className="text-xs text-muted-foreground">{photo['Capture Date']}</p>}
                 </CardFooter>
               </Card>
@@ -149,7 +150,7 @@ export function GalleryClient({
         <TabsContent value="videos">
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {videos.map((video) => (
-              <Card key={video.name} className="overflow-hidden group animate-in fade-in-0 zoom-in-95 duration-500">
+              <Card key={video['File Name']} className="overflow-hidden group animate-in fade-in-0 zoom-in-95 duration-500">
                 <CardContent className="p-0 relative aspect-video bg-black">
                   <video
                     controls
@@ -165,13 +166,13 @@ export function GalleryClient({
                     </FileDetailsModal>
                     {isAdmin && (
                       <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                        <DeleteButton fileName={video.name} type="videos" />
+                        <DeleteButton fileName={video['File Name']} type="videos" />
                       </div>
                     )}
                   </div>
                 </CardContent>
                 <CardFooter className="p-2">
-                    <p className="text-sm truncate font-medium">{video.name}</p>
+                    <p className="text-sm truncate font-medium">{video['File Name']}</p>
                 </CardFooter>
               </Card>
             ))}
@@ -182,7 +183,7 @@ export function GalleryClient({
         <TabsContent value="documents">
           <div className="flex flex-col gap-4">
             {documents.map((doc) => (
-              <Card key={doc.name} className="animate-in fade-in-0 zoom-in-95 duration-500">
+              <Card key={doc['File Name']} className="animate-in fade-in-0 zoom-in-95 duration-500">
                 <CardContent className="p-4 flex items-center justify-between">
                   <div className="flex items-center gap-3 overflow-hidden">
                     <FileText className="h-6 w-6 text-primary flex-shrink-0" />
@@ -192,7 +193,7 @@ export function GalleryClient({
                       rel="noopener noreferrer"
                       className="font-medium hover:underline truncate"
                     >
-                      {doc.name}
+                      {doc['File Name']}
                     </a>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0 ml-4">
@@ -202,7 +203,7 @@ export function GalleryClient({
                         <span className="sr-only">Details</span>
                       </Button>
                     </FileDetailsModal>
-                    {isAdmin && <DeleteButton fileName={doc.name} type="documents" />}
+                    {isAdmin && <DeleteButton fileName={doc['File Name']} type="documents" />}
                   </div>
                 </CardContent>
               </Card>

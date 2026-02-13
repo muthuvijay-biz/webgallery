@@ -31,6 +31,7 @@ export async function login(prevState: any, formData: FormData) {
 export async function uploadFile(prevState: any, formData: FormData) {
   const file = formData.get('file') as File;
   const type = formData.get('type') as 'images' | 'videos' | 'documents';
+  const description = formData.get('description') as string | null;
 
   if (!file || !type || file.size === 0) {
     return { success: false, message: 'Please select a file to upload.' };
@@ -43,10 +44,14 @@ export async function uploadFile(prevState: any, formData: FormData) {
   // Sanitize file name to prevent directory traversal
   const sanitizedFileName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
   const path = join(uploadDir, sanitizedFileName);
+  const descriptionPath = `${path}.json`;
 
   try {
     await mkdir(uploadDir, { recursive: true });
     await writeFile(path, buffer);
+    if (description) {
+      await writeFile(descriptionPath, JSON.stringify({ description }));
+    }
     revalidatePath('/');
     revalidatePath('/uploads');
     return { success: true, message: 'File uploaded successfully!' };
@@ -65,6 +70,8 @@ export async function deleteFile(fileName: string, type: string) {
 
   try {
     await unlink(path);
+    // Also delete the metadata file if it exists
+    await unlink(`${path}.json`).catch(() => {}); // Ignore error if it doesn't exist
     revalidatePath('/');
     revalidatePath('/uploads');
     return { success: true, message: 'File deleted successfully.' };

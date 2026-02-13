@@ -8,7 +8,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
   DialogClose,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -16,6 +15,7 @@ import { Label } from '@/components/ui/label';
 import { useUpload } from '@/context/upload-provider';
 import { Upload } from 'lucide-react';
 import { useState, useRef } from 'react';
+import { Textarea } from './ui/textarea';
 
 type UploadDialogProps = {
   type: 'images' | 'videos' | 'documents';
@@ -23,23 +23,38 @@ type UploadDialogProps = {
 
 export function UploadDialog({ type }: UploadDialogProps) {
   const [open, setOpen] = useState(false);
-  const [files, setFiles] = useState<FileList | null>(null);
-  const { uploadFiles } = useUpload();
+  const [file, setFile] = useState<File | null>(null);
+  const [description, setDescription] = useState('');
+  const { uploadFile } = useUpload();
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = () => {
-    if (files) {
-      uploadFiles(Array.from(files), type);
+    if (file) {
+      uploadFile(file, description, type);
       setOpen(false);
-      setFiles(null);
+      // Reset state after submit
+      setFile(null);
+      setDescription('');
       if (inputRef.current) {
         inputRef.current.value = '';
       }
     }
   };
+  
+  const handleOpenChange = (isOpen: boolean) => {
+    if (!isOpen) {
+      // Reset state on close
+      setFile(null);
+      setDescription('');
+      if (inputRef.current) {
+        inputRef.current.value = '';
+      }
+    }
+    setOpen(isOpen);
+  }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button>
           <Upload className="mr-2 h-4 w-4" />
@@ -49,24 +64,31 @@ export function UploadDialog({ type }: UploadDialogProps) {
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>
-            Upload new {type === 'images' ? 'images' : type.slice(0, -1)}
+            Upload new {type === 'images' ? 'image' : type.slice(0, -1)}
           </DialogTitle>
           <DialogDescription>
-            Select one or more files from your device. They will be added to the
-            gallery.
+            Select a file from your device and optionally add a description.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="grid w-full max-w-sm items-center gap-1.5">
-            <Label htmlFor="file">Files</Label>
+            <Label htmlFor="file">File</Label>
             <Input
               id="file"
               name="file"
               type="file"
               ref={inputRef}
-              multiple
               required
-              onChange={(e) => setFiles(e.target.files)}
+              onChange={(e) => setFile(e.target.files ? e.target.files[0] : null)}
+            />
+          </div>
+          <div className="grid w-full gap-1.5">
+            <Label htmlFor="description">Description (optional)</Label>
+            <Textarea
+              id="description"
+              placeholder="Type your description here."
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
             />
           </div>
         </div>
@@ -76,7 +98,7 @@ export function UploadDialog({ type }: UploadDialogProps) {
           </DialogClose>
           <Button
             onClick={handleSubmit}
-            disabled={!files || files.length === 0}
+            disabled={!file}
           >
             Upload
             <Upload className="ml-2 h-4 w-4" />
