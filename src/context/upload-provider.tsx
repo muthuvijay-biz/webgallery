@@ -17,6 +17,7 @@ type UploadContextType = {
   uploadingFiles: UploadingFile[];
   uploadFiles: (files: File[], type: 'images' | 'videos' | 'documents') => void;
   clearCompleted: () => void;
+  clearAll: () => void;
 };
 
 const UploadContext = createContext<UploadContextType | undefined>(undefined);
@@ -87,9 +88,13 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     );
   };
 
+  const clearAll = () => {
+    setUploadingFiles([]);
+  };
+
   return (
     <UploadContext.Provider
-      value={{ uploadingFiles, uploadFiles, clearCompleted }}
+      value={{ uploadingFiles, uploadFiles, clearCompleted, clearAll }}
     >
       {children}
     </UploadContext.Provider>
