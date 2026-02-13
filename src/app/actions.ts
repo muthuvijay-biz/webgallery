@@ -41,7 +41,7 @@ export async function logout() {
   redirect('/login');
 }
 
-export async function uploadFile(formData: FormData) {
+export async function uploadFile(prevState: any, formData: FormData) {
   const file = formData.get('file') as File;
   const type = formData.get('type') as 'images' | 'videos' | 'documents';
 
