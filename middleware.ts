@@ -5,15 +5,6 @@ export function middleware(request: NextRequest) {
   const isAdminCookie = request.cookies.get('is_admin');
   const isAdmin = isAdminCookie?.value === 'true';
 
-  const isLoginPage = request.nextUrl.pathname === '/login';
-
-  if (isLoginPage) {
-    if (isAdmin) {
-      return NextResponse.redirect(new URL('/', request.url));
-    }
-    return NextResponse.next();
-  }
-
   if (!isAdmin) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
@@ -30,7 +21,8 @@ export const config = {
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - uploads (uploaded media)
+     * - login (the login page)
      */
-    '/((?!api|_next/static|_next/image|favicon.ico|uploads).*)',
+    '/((?!api|_next/static|_next/image|favicon.ico|uploads|login).*)',
   ],
 };
