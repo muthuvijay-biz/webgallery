@@ -29,6 +29,12 @@ const nextConfig: NextConfig = {
         pathname: '/**',
       },
     ],
+    unoptimized: true
+  },
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '50mb', // Increase body size limit for file uploads
+    },
   },
 };
 

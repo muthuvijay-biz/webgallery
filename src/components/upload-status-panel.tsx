@@ -102,7 +102,7 @@ export function UploadStatusPanel() {
   }
 
   return (
-    <Card className="fixed bottom-4 right-4 w-[calc(100vw-2rem)] max-w-md z-50 shadow-2xl animate-in slide-in-from-bottom-5">
+    <Card className="fixed bottom-4 right-4 w-11/12 max-w-md z-50 shadow-2xl animate-in slide-in-from-bottom-5">
       <CardHeader className="flex flex-row items-center p-3">
         <div className="flex items-center gap-2 flex-1 overflow-hidden">
           <CardTitle className="text-base font-semibold truncate">
