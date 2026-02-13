@@ -43,45 +43,36 @@ export function UploadProvider({ children }: { children: ReactNode }) {
 
     setUploadingFiles((prev) => [newFile, ...prev]);
 
-    setUploadingFiles((prev) =>
-      prev.map((f) =>
-        f.id === newFile.id ? { ...f, status: 'uploading', progress: 5 } : f
-      )
-    );
-
-    // Simulate progress
-    const progressInterval = setInterval(() => {
+    // Use a small timeout to ensure the UI updates to 'pending' before 'uploading'
+    setTimeout(async () => {
       setUploadingFiles((prev) =>
-        prev.map((f) => {
-          if (f.id === newFile.id && f.progress < 90) {
-            return { ...f, progress: f.progress + 5 };
-          }
-          return f;
-        })
+        prev.map((f) =>
+          f.id === newFile.id
+            ? { ...f, status: 'uploading', progress: 50 } // Set to 50% to show it's in progress
+            : f
+        )
       );
-    }, 200);
 
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('type', type);
-    formData.append('description', description);
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('type', type);
+      formData.append('description', description);
 
-    const result = await serverUploadFile(null, formData);
+      const result = await serverUploadFile(null, formData);
 
-    clearInterval(progressInterval);
-
-    setUploadingFiles((prev) =>
-      prev.map((f) =>
-        f.id === newFile.id
-          ? {
-              ...f,
-              status: result.success ? 'success' : 'error',
-              progress: 100,
-              message: result.message,
-            }
-          : f
-      )
-    );
+      setUploadingFiles((prev) =>
+        prev.map((f) =>
+          f.id === newFile.id
+            ? {
+                ...f,
+                status: result.success ? 'success' : 'error',
+                progress: 100,
+                message: result.message,
+              }
+            : f
+        )
+      );
+    }, 100);
   };
 
   const clearCompleted = () => {

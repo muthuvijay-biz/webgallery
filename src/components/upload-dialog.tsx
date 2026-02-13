@@ -33,12 +33,6 @@ export function UploadDialog({ type }: UploadDialogProps) {
     if (file) {
       uploadFile(file, description, type);
       setOpen(false);
-      // Reset state after submit
-      setFile(null);
-      setDescription('');
-      if (inputRef.current) {
-        inputRef.current.value = '';
-      }
     }
   };
   

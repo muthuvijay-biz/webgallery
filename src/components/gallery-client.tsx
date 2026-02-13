@@ -116,12 +116,12 @@ export function GalleryClient({
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {photos.map((photo) => (
               <Card key={photo['File Name']} className="overflow-hidden group animate-in fade-in-0 zoom-in-95 duration-500">
-                <CardContent className="p-0 relative aspect-square">
+                <CardContent className="p-0 relative aspect-square bg-black">
                   <Image
                     src={photo.path}
                     alt={photo['File Name']}
                     fill
-                    className="object-cover"
+                    className="object-contain"
                     sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, (max-width: 1024px) 33vw, (max-width: 1280px) 25vw, 20vw"
                   />
                   <div className="absolute top-2 right-2 flex items-center gap-2">
