@@ -4,8 +4,15 @@ import type { NextRequest } from 'next/server';
 export function middleware(request: NextRequest) {
   const isAdminCookie = request.cookies.get('is_admin');
   const isAdmin = isAdminCookie?.value === 'true';
+  const isLoginPage = request.nextUrl.pathname.startsWith('/login');
 
-  if (!isAdmin) {
+  // If logged in and trying to access login page, redirect to home
+  if (isAdmin && isLoginPage) {
+    return NextResponse.redirect(new URL('/', request.url));
+  }
+
+  // If not logged in and not on the login page, redirect to login
+  if (!isAdmin && !isLoginPage) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
@@ -21,8 +28,7 @@ export const config = {
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - uploads (uploaded media)
-     * - login (the login page)
      */
-    '/((?!api|_next/static|_next/image|favicon.ico|uploads|login).*)',
+    '/((?!api|_next/static|_next/image|favicon.ico|uploads).*)',
   ],
 };
