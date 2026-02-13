@@ -7,6 +7,7 @@ import {
   Loader2,
   LogOut,
   Video as VideoIcon,
+  Info,
 } from 'lucide-react';
 import {
   Tabs,
@@ -21,11 +22,13 @@ import { DeleteButton } from './delete-button';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { UploadStatusPanel } from './upload-status-panel';
+import { FileMetadata } from '@/lib/files';
+import { FileDetailsModal } from './file-details-modal';
 
 type GalleryClientProps = {
-  photos: string[];
-  videos: string[];
-  documents: string[];
+  photos: FileMetadata[];
+  videos: FileMetadata[];
+  documents: FileMetadata[];
   isAdmin?: boolean;
 };
 
@@ -112,21 +115,31 @@ export function GalleryClient({
         <TabsContent value="photos">
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {photos.map((photo) => (
-              <Card key={photo} className="overflow-hidden group animate-in fade-in-0 zoom-in-95 duration-500">
+              <Card key={photo.name} className="overflow-hidden group animate-in fade-in-0 zoom-in-95 duration-500">
                 <CardContent className="p-0 relative aspect-square">
                   <Image
-                    src={`/uploads/images/${photo}`}
-                    alt={photo}
+                    src={photo.path}
+                    alt={photo.name}
                     fill
                     className="object-cover"
                     sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, (max-width: 1024px) 33vw, (max-width: 1280px) 25vw, 20vw"
                   />
-                  {isAdmin && (
-                    <div className="absolute top-2 right-2">
-                      <DeleteButton fileName={photo} type="images" />
-                    </div>
-                  )}
+                  <div className="absolute top-2 right-2 flex items-center gap-2">
+                    <FileDetailsModal file={photo}>
+                      <Button variant="outline" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Info className="h-4 w-4" />
+                        <span className="sr-only">Details</span>
+                      </Button>
+                    </FileDetailsModal>
+                    {isAdmin && (
+                      <DeleteButton fileName={photo.name} type="images" />
+                    )}
+                  </div>
                 </CardContent>
+                <CardFooter className="p-2 flex-col items-start">
+                  <p className="text-sm truncate font-medium">{photo['File Name']}</p>
+                  {photo['Capture Date'] && <p className="text-xs text-muted-foreground">{photo['Capture Date']}</p>}
+                </CardFooter>
               </Card>
             ))}
              {photos.length === 0 && <p className="text-muted-foreground col-span-full text-center py-10">No photos uploaded yet.</p>}
@@ -136,21 +149,29 @@ export function GalleryClient({
         <TabsContent value="videos">
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {videos.map((video) => (
-              <Card key={video} className="overflow-hidden group animate-in fade-in-0 zoom-in-95 duration-500">
+              <Card key={video.name} className="overflow-hidden group animate-in fade-in-0 zoom-in-95 duration-500">
                 <CardContent className="p-0 relative aspect-video bg-black">
                   <video
                     controls
-                    src={`/uploads/videos/${video}`}
+                    src={video.path}
                     className="w-full h-full"
                   />
-                  {isAdmin && (
-                    <div className="absolute top-2 right-2">
-                      <DeleteButton fileName={video} type="videos" />
-                    </div>
-                  )}
+                  <div className="absolute top-2 right-2 flex items-center gap-2">
+                    <FileDetailsModal file={video}>
+                      <Button variant="outline" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity !text-white bg-black/20 hover:bg-black/50 border-white/50">
+                        <Info className="h-4 w-4" />
+                        <span className="sr-only">Details</span>
+                      </Button>
+                    </FileDetailsModal>
+                    {isAdmin && (
+                      <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                        <DeleteButton fileName={video.name} type="videos" />
+                      </div>
+                    )}
+                  </div>
                 </CardContent>
                 <CardFooter className="p-2">
-                    <p className="text-sm truncate font-medium">{video}</p>
+                    <p className="text-sm truncate font-medium">{video.name}</p>
                 </CardFooter>
               </Card>
             ))}
@@ -161,20 +182,28 @@ export function GalleryClient({
         <TabsContent value="documents">
           <div className="flex flex-col gap-4">
             {documents.map((doc) => (
-              <Card key={doc} className="animate-in fade-in-0 zoom-in-95 duration-500">
+              <Card key={doc.name} className="animate-in fade-in-0 zoom-in-95 duration-500">
                 <CardContent className="p-4 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <FileText className="h-6 w-6 text-primary" />
+                  <div className="flex items-center gap-3 overflow-hidden">
+                    <FileText className="h-6 w-6 text-primary flex-shrink-0" />
                     <a
-                      href={`/uploads/documents/${doc}`}
+                      href={doc.path}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="font-medium hover:underline"
+                      className="font-medium hover:underline truncate"
                     >
-                      {doc}
+                      {doc.name}
                     </a>
                   </div>
-                  {isAdmin && <DeleteButton fileName={doc} type="documents" />}
+                  <div className="flex items-center gap-2 flex-shrink-0 ml-4">
+                     <FileDetailsModal file={doc}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8">
+                        <Info className="h-4 w-4" />
+                        <span className="sr-only">Details</span>
+                      </Button>
+                    </FileDetailsModal>
+                    {isAdmin && <DeleteButton fileName={doc.name} type="documents" />}
+                  </div>
                 </CardContent>
               </Card>
             ))}

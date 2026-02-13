@@ -1,20 +1,5 @@
-import { readdir } from 'fs/promises';
-import { join } from 'path';
+import { getFiles } from '@/lib/files';
 import { GalleryClient } from '@/components/gallery-client';
-import { mkdir } from 'fs/promises';
-
-async function getFiles(type: string): Promise<string[]> {
-  const dirPath = join(process.cwd(), 'public', 'uploads', type);
-  try {
-    // Ensure directory exists
-    await mkdir(dirPath, { recursive: true });
-    return await readdir(dirPath);
-  } catch (error) {
-    console.error(`Error reading directory ${dirPath}:`, error);
-    // If directory doesn't exist or other error, return empty array
-    return [];
-  }
-}
 
 export default async function GalleryPage() {
   const photos = await getFiles('images');
@@ -23,7 +8,12 @@ export default async function GalleryPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <GalleryClient photos={photos} videos={videos} documents={documents} isAdmin={false} />
+      <GalleryClient
+        photos={photos}
+        videos={videos}
+        documents={documents}
+        isAdmin={false}
+      />
     </div>
   );
 }
