@@ -1,7 +1,5 @@
 'use client';
 
-import { useFormStatus } from 'react-dom';
-import { uploadFile } from '@/app/actions';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -11,47 +9,34 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-  DialogClose
+  DialogClose,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useUpload } from '@/context/upload-provider';
 import { Upload } from 'lucide-react';
-import { useActionState, useEffect, useRef, useState } from 'react';
-import { useToast } from '@/hooks/use-toast';
+import { useState, useRef } from 'react';
 
 type UploadDialogProps = {
   type: 'images' | 'videos' | 'documents';
 };
 
-function SubmitButton() {
-  const { pending } = useFormStatus();
-  return (
-    <Button type="submit" disabled={pending}>
-      {pending ? 'Uploading...' : 'Upload'}
-      <Upload className="ml-2 h-4 w-4" />
-    </Button>
-  );
-}
-
 export function UploadDialog({ type }: UploadDialogProps) {
   const [open, setOpen] = useState(false);
-  const formRef = useRef<HTMLFormElement>(null);
-  const [state, formAction] = useActionState(uploadFile, undefined);
-  const { toast } = useToast();
+  const [files, setFiles] = useState<FileList | null>(null);
+  const { uploadFiles } = useUpload();
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (state?.message) {
-      toast({
-        title: state.success ? 'Success' : 'Error',
-        description: state.message,
-        variant: state.success ? 'default' : 'destructive',
-      });
-      if (state.success) {
-        setOpen(false);
-        formRef.current?.reset();
+  const handleSubmit = () => {
+    if (files) {
+      uploadFiles(Array.from(files), type);
+      setOpen(false);
+      setFiles(null);
+      if (inputRef.current) {
+        inputRef.current.value = '';
       }
     }
-  }, [state, toast]);
+  };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -62,27 +47,41 @@ export function UploadDialog({ type }: UploadDialogProps) {
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[425px]">
-        <form ref={formRef} action={formAction}>
-          <DialogHeader>
-            <DialogTitle>Upload a new {type.slice(0, -1)}</DialogTitle>
-            <DialogDescription>
-              Select a file from your device. It will be added to the gallery.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid w-full max-w-sm items-center gap-1.5">
-              <Label htmlFor="file">File</Label>
-              <Input id="file" name="file" type="file" required />
-              <input type="hidden" name="type" value={type} />
-            </div>
+        <DialogHeader>
+          <DialogTitle>
+            Upload new {type === 'images' ? 'images' : type.slice(0, -1)}
+          </DialogTitle>
+          <DialogDescription>
+            Select one or more files from your device. They will be added to the
+            gallery.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="grid w-full max-w-sm items-center gap-1.5">
+            <Label htmlFor="file">Files</Label>
+            <Input
+              id="file"
+              name="file"
+              type="file"
+              ref={inputRef}
+              multiple
+              required
+              onChange={(e) => setFiles(e.target.files)}
+            />
           </div>
-          <DialogFooter>
-            <DialogClose asChild>
-              <Button variant="outline">Cancel</Button>
-            </DialogClose>
-            <SubmitButton />
-          </DialogFooter>
-        </form>
+        </div>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="outline">Cancel</Button>
+          </DialogClose>
+          <Button
+            onClick={handleSubmit}
+            disabled={!files || files.length === 0}
+          >
+            Upload
+            <Upload className="ml-2 h-4 w-4" />
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

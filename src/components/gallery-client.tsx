@@ -4,6 +4,7 @@ import Image from 'next/image';
 import {
   FileText,
   Image as ImageIcon,
+  Loader2,
   LogOut,
   Video as VideoIcon,
 } from 'lucide-react';
@@ -19,6 +20,7 @@ import { UploadDialog } from './upload-dialog';
 import { DeleteButton } from './delete-button';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { UploadStatusPanel } from './upload-status-panel';
 
 type GalleryClientProps = {
   photos: string[];
@@ -50,8 +52,16 @@ export function GalleryClient({
   };
 
   if (!isClient) {
-    // Render nothing or a loading spinner until the client-side auth check is complete
-    return null;
+    return (
+      <div className="fixed inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-50">
+        <div className="flex items-center gap-2">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <span className="text-lg font-medium text-muted-foreground">
+            Loading Gallery...
+          </span>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -158,6 +168,7 @@ export function GalleryClient({
           </div>
         </TabsContent>
       </Tabs>
+      <UploadStatusPanel />
     </div>
   );
 }
