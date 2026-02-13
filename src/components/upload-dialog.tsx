@@ -1,6 +1,6 @@
 'use client';
 
-import { useFormState, useFormStatus } from 'react-dom';
+import { useFormStatus } from 'react-dom';
 import { uploadFile } from '@/app/actions';
 import { Button } from '@/components/ui/button';
 import {
@@ -16,7 +16,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Upload } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useActionState, useEffect, useRef, useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 
 type UploadDialogProps = {
@@ -36,7 +36,7 @@ function SubmitButton() {
 export function UploadDialog({ type }: UploadDialogProps) {
   const [open, setOpen] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
-  const [state, formAction] = useFormState(uploadFile, undefined);
+  const [state, formAction] = useActionState(uploadFile, undefined);
   const { toast } = useToast();
 
   useEffect(() => {
