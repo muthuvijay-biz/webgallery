@@ -61,6 +61,7 @@ export function GalleryClient({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [zoom, setZoom] = useState(1);
   const slideshowTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [isAutoPlay, setIsAutoPlay] = useState(true);
   
   // Audio player state
   const [currentAudio, setCurrentAudio] = useState<FileMetadata | null>(null);
@@ -85,6 +86,7 @@ export function GalleryClient({
     setCurrentIndex(index);
     setSlideshowActive(true);
     setZoom(1);
+    setIsAutoPlay(true);
   }, []);
 
   const stopSlideshow = useCallback(() => {
@@ -95,21 +97,37 @@ export function GalleryClient({
   }, []);
 
   const nextSlide = useCallback(() => {
-    if (activeTab === 'photos') {
+    if (activeTab === 'photos' && photos.length > 0) {
       setCurrentIndex((prev) => (prev + 1) % photos.length);
       setZoom(1);
     }
   }, [activeTab, photos.length]);
 
   const prevSlide = useCallback(() => {
-    if (activeTab === 'photos') {
+    if (activeTab === 'photos' && photos.length > 0) {
       setCurrentIndex((prev) => (prev - 1 + photos.length) % photos.length);
       setZoom(1);
     }
   }, [activeTab, photos.length]);
 
+  const handleNextSlide = useCallback(() => {
+    setIsAutoPlay(false);
+    nextSlide();
+  }, [nextSlide]);
+
+  const handlePrevSlide = useCallback(() => {
+    setIsAutoPlay(false);
+    prevSlide();
+  }, [prevSlide]);
+
+  const handleIndexChange = useCallback((index: number) => {
+    setIsAutoPlay(false);
+    setCurrentIndex(index);
+    setZoom(1);
+  }, []);
+
   useEffect(() => {
-    if (slideshowActive && !isFullscreen) {
+    if (slideshowActive && !isFullscreen && isAutoPlay) {
       slideshowTimerRef.current = setTimeout(() => {
         nextSlide();
       }, 3000);
@@ -119,20 +137,8 @@ export function GalleryClient({
         clearTimeout(slideshowTimerRef.current);
       }
     };
-  }, [slideshowActive, currentIndex, nextSlide, isFullscreen]);
+  }, [slideshowActive, currentIndex, nextSlide, isFullscreen, isAutoPlay]);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (slideshowActive) {
-        if (e.key === 'ArrowRight') nextSlide();
-        if (e.key === 'ArrowLeft') prevSlide();
-        if (e.key === 'Escape') stopSlideshow();
-        if (e.key === 'f' || e.key === 'F') toggleFullscreen();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [slideshowActive, nextSlide, prevSlide, stopSlideshow]);
 
   const toggleFullscreen = useCallback(() => {
     if (!document.fullscreenElement) {
@@ -145,6 +151,20 @@ export function GalleryClient({
       setIsFullscreen(false);
     }
   }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (slideshowActive) {
+        if (e.key === 'ArrowRight') handleNextSlide();
+        if (e.key === 'ArrowLeft') handlePrevSlide();
+        if (e.key === 'Escape') stopSlideshow();
+        if (e.key === 'f' || e.key === 'F') toggleFullscreen();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [slideshowActive, handleNextSlide, handlePrevSlide, stopSlideshow, toggleFullscreen]);
+
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -537,15 +557,12 @@ export function GalleryClient({
           currentIndex={currentIndex}
           zoom={zoom}
           onClose={stopSlideshow}
-          onNext={nextSlide}
-          onPrev={prevSlide}
+          onNext={handleNextSlide}
+          onPrev={handlePrevSlide}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
           onToggleFullscreen={toggleFullscreen}
-          onIndexChange={(index) => {
-            setCurrentIndex(index);
-            setZoom(1);
-          }}
+          onIndexChange={handleIndexChange}
         />
       )}
 
