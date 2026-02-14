@@ -93,6 +93,7 @@ export function GalleryClient({
     setSlideshowActive(false);
     if (slideshowTimerRef.current) {
       clearTimeout(slideshowTimerRef.current);
+      slideshowTimerRef.current = null;
     }
   }, []);
 
@@ -111,16 +112,28 @@ export function GalleryClient({
   }, [activeTab, photos.length]);
 
   const handleNextSlide = useCallback(() => {
+    if (slideshowTimerRef.current) {
+      clearTimeout(slideshowTimerRef.current);
+      slideshowTimerRef.current = null;
+    }
     setIsAutoPlay(false);
     nextSlide();
   }, [nextSlide]);
 
   const handlePrevSlide = useCallback(() => {
+    if (slideshowTimerRef.current) {
+      clearTimeout(slideshowTimerRef.current);
+      slideshowTimerRef.current = null;
+    }
     setIsAutoPlay(false);
     prevSlide();
   }, [prevSlide]);
 
   const handleIndexChange = useCallback((index: number) => {
+    if (slideshowTimerRef.current) {
+      clearTimeout(slideshowTimerRef.current);
+      slideshowTimerRef.current = null;
+    }
     setIsAutoPlay(false);
     setCurrentIndex(index);
     setZoom(1);
@@ -135,6 +148,7 @@ export function GalleryClient({
     return () => {
       if (slideshowTimerRef.current) {
         clearTimeout(slideshowTimerRef.current);
+        slideshowTimerRef.current = null;
       }
     };
   }, [slideshowActive, currentIndex, nextSlide, isFullscreen, isAutoPlay]);
