@@ -16,6 +16,12 @@ type FileDetailsModalProps = {
 };
 
 export function FileDetailsModal({ file, children }: FileDetailsModalProps) {
+  const detailsToShow = [
+    { key: 'File Name', value: file['File Name'] },
+    { key: 'File Size', value: file['File Size'] },
+    { key: 'Description', value: file['Description'] },
+  ];
+
   return (
     <Dialog>
       <DialogTrigger asChild>{children}</DialogTrigger>
@@ -25,8 +31,8 @@ export function FileDetailsModal({ file, children }: FileDetailsModalProps) {
         </DialogHeader>
         <ScrollArea className="max-h-96 pr-6">
             <div className="mt-4 space-y-3 text-sm">
-            {Object.entries(file).map(([key, value]) => {
-                if (key === 'path' || key === 'type' || !value) return null;
+            {detailsToShow.map(({ key, value }) => {
+                if (!value) return null;
                 return (
                 <div key={key} className="grid grid-cols-[120px_1fr] gap-2 items-start">
                     <p className="font-semibold text-muted-foreground break-words">{key}</p>
