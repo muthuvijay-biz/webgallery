@@ -2,11 +2,11 @@
 
 import Image from 'next/image';
 import { Info } from 'lucide-react';
-import { Card, CardContent, CardFooter } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { FileMetadata } from '@/lib/files';
-import { FileDetailsModal } from './FileDetailsModal';
-import { DeleteButton } from './DeleteButton';
+import { FileDetailsModal } from './file-details-modal';
+import { DeleteButton } from './delete-button';
 
 interface PhotoCardProps {
   photo: FileMetadata;
@@ -26,13 +26,13 @@ export function PhotoCard({ photo, index, isAdmin, onView }: PhotoCardProps) {
           src={photo.path}
           alt={photo['File Name']}
           fill
-          className="object-cover group-hover:scale-110 transition-transform duration-500"
+          className="object-contain group-hover:scale-105 transition-transform duration-500"
           sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, (max-width: 1280px) 20vw, 16vw"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
         
         {/* Action Buttons */}
-        <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+        <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300" onClick={(e) => e.stopPropagation()}>
           <FileDetailsModal file={photo}>
             <Button variant="secondary" size="icon" className="h-7 w-7 sm:h-8 sm:w-8 rounded-full shadow-lg backdrop-blur-sm bg-background/90">
               <Info className="h-3 w-3 sm:h-4 sm:w-4" />

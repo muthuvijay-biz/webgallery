@@ -26,11 +26,11 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { FileMetadata } from '@/lib/files';
 import { cn } from '@/lib/utils';
-import { GalleryHeader } from './components/GalleryHeader';
-import { PhotoCard } from './components/PhotoCard';
-import { FileDetailsModal } from './components/FileDetailsModal';
-import { DeleteButton } from './components/DeleteButton';
-import { Slideshow } from './components/Slideshow';
+import { GalleryHeader } from './gallery-header';
+import { PhotoCard } from './photocard';
+import { FileDetailsModal } from './file-details-modal';
+import { DeleteButton } from './delete-button';
+import { Slideshow } from './slideshow';
 
 type GalleryClientProps = {
   photos: FileMetadata[];
