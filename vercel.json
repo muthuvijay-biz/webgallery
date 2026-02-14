@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "src/ai/**/*.ts": {
+      "includeFiles": "!"
+    }
+  }
+}
