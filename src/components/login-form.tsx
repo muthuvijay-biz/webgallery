@@ -79,8 +79,11 @@ export function LoginForm() {
              </Alert>
            )}
         </CardContent>
-        <CardFooter>
-          <SubmitButton />
+        <CardFooter className="flex items-center gap-3">
+          <Button variant="ghost" onClick={() => router.push('/')}>Home</Button>
+          <div className="flex-1 flex justify-end">
+            <SubmitButton />
+          </div>
         </CardFooter>
       </form>
     </Card>

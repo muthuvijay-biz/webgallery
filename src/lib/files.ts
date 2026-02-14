@@ -1,6 +1,7 @@
 import { readdir, stat, readFile } from 'fs/promises';
 import { join, parse } from 'path';
 import { mkdir } from 'fs/promises';
+import supabaseAdmin from './supabaseAdmin';
 
 export type FileMetadata = {
   'File Name': string;
@@ -11,6 +12,8 @@ export type FileMetadata = {
   'Description'?: string;
   type: 'image' | 'video' | 'document';
   path: string;
+  // optional timestamps for sorting
+  mtimeMs?: number;
 };
 
 async function getFileMetadata(filePath: string, fileName: string, type: 'images' | 'videos' | 'documents'): Promise<FileMetadata> {
@@ -20,7 +23,8 @@ async function getFileMetadata(filePath: string, fileName: string, type: 'images
     'File Size': `${(stats.size / 1024 / 1024).toFixed(2)} MB`,
     'Last Modified': stats.mtime.toLocaleDateString(),
     type: type.slice(0, -1) as 'image' | 'video' | 'document',
-    path: `/uploads/${type}/${fileName}`
+    path: `/uploads/${type}/${fileName}`,
+    mtimeMs: stats.mtime.getTime(),
   };
 
   // Check for description file
@@ -50,15 +54,88 @@ async function getFileMetadata(filePath: string, fileName: string, type: 'images
 
 
 export async function getFiles(type: 'images' | 'videos' | 'documents'): Promise<FileMetadata[]> {
+  if (process.env.USE_SUPABASE === 'true') {
+    try {
+      const bucket = process.env.SUPABASE_BUCKET!;
+      const { data, error } = await supabaseAdmin.storage.from(bucket).list(type, { limit: 1000, offset: 0 });
+      if (error) {
+        console.error('Supabase storage list error:', error);
+        return [];
+      }
+      if (!data || data.length === 0) return [];
+
+      const expiry = parseInt(process.env.SUPABASE_SIGNED_URL_EXPIRY || '3600', 10);
+
+      // prepare items with timestamps, sort newest-first
+      const items = data.filter(item => !item.name.endsWith('.json'))
+        .map(item => ({ item, updatedMs: Date.parse((item as any).updated_at ?? (item as any).created_at ?? '') || 0 }));
+      items.sort((a, b) => b.updatedMs - a.updatedMs);
+
+      const filesWithMetadata: FileMetadata[] = await Promise.all(
+        items.map(async ({ item }) => {
+          const size = (item.metadata as any)?.size ?? 0;
+          const updated = (item as any).updated_at ?? (item as any).created_at ?? '';
+          const filePath = `${type}/${item.name}`;
+
+          const { data: signedData, error: signedErr } = await supabaseAdmin
+            .storage
+            .from(bucket)
+            .createSignedUrl(filePath, expiry);
+
+          const path = signedErr
+            ? `${process.env.SUPABASE_URL}/storage/v1/object/public/${bucket}/${filePath}`
+            : signedData?.signedUrl ?? `${process.env.SUPABASE_URL}/storage/v1/object/public/${bucket}/${filePath}`;
+
+          // attempt to load companion JSON description (fileName.json)
+          let description: string | undefined = undefined;
+          try {
+            const jsonPath = `${type}/${item.name}.json`;
+            const { data: jsonSigned, error: jsonSignedErr } = await supabaseAdmin
+              .storage
+              .from(bucket)
+              .createSignedUrl(jsonPath, Math.min(expiry, 60));
+
+            if (!jsonSignedErr && jsonSigned?.signedUrl) {
+              const res = await fetch(jsonSigned.signedUrl);
+              if (res.ok) {
+                const json = await res.json().catch(() => null);
+                if (json && typeof json.description === 'string') description = json.description;
+              }
+            }
+          } catch (e) {
+            // ignore — description is optional
+          }
+
+          return {
+            'File Name': item.name,
+            'File Size': `${(size / 1024 / 1024).toFixed(2)} MB`,
+            'Last Modified': updated ? new Date(updated).toLocaleDateString() : '',
+            type: type.slice(0, -1) as 'image' | 'video' | 'document',
+            path,
+            mtimeMs: Date.parse(updated) || 0,
+            Description: description,
+          } as FileMetadata;
+        })
+      );
+
+      return filesWithMetadata;
+    } catch (err) {
+      console.error('Error listing Supabase storage:', err);
+      return [];
+    }
+  }
+
   const dirPath = join(process.cwd(), 'public', 'uploads', type);
   try {
     await mkdir(dirPath, { recursive: true });
     const fileNames = await readdir(dirPath);
     if (fileNames.length === 0) return [];
     
-    const filesWithMetadata = await Promise.all(
+    let filesWithMetadata = await Promise.all(
       fileNames.filter(name => !name.endsWith('.json')).map(name => getFileMetadata(join(dirPath, name), name, type))
     );
+    // sort newest uploads first
+    filesWithMetadata = filesWithMetadata.sort((a, b) => (b.mtimeMs || 0) - (a.mtimeMs || 0));
     return filesWithMetadata;
   } catch (error) {
     if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {

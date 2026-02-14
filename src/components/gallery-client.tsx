@@ -3,6 +3,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import useEmblaCarousel from 'embla-carousel-react';
+import PhotoSwipeLightbox from 'photoswipe/lightbox';
+import PhotoSwipe from 'photoswipe';
+import 'photoswipe/style.css';
 import {
   FileText,
   Image as ImageIcon,
@@ -15,6 +19,8 @@ import {
   Download,
   X,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import {
   Tabs,
@@ -30,6 +36,7 @@ import { GalleryHeader } from './gallery-header';
 import { PhotoCard } from './photocard';
 import { FileDetailsModal } from './file-details-modal';
 import { DeleteButton } from './delete-button';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 type GalleryClientProps = {
   photos: FileMetadata[];
@@ -51,14 +58,59 @@ export function GalleryClient({
   const [isClient, setIsClient] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   
-  // Image viewer state (NO SLIDESHOW)
+  // Image viewer state
   const [viewerOpen, setViewerOpen] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
+  // small enter animation flag for smoother opening
+  const [viewerJustOpened, setViewerJustOpened] = useState(false);
+  // Sliding animation state for mobile/desktop gallery-style transitions
+  const [prevIndex, setPrevIndex] = useState<number | null>(null);
+  const [isSliding, setIsSliding] = useState(false);
+  const [slideDirection, setSlideDirection] = useState<'left' | 'right' | null>(null);
+  const [slideActive, setSlideActive] = useState(false);
+
+  // Drawer state & drag handling for mobile swipe
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const drawerRef = useRef<HTMLDivElement | null>(null);
+  const drawerStartYRef = useRef<number | null>(null);
+  const drawerLastTouchYRef = useRef<number | null>(null);
+  const drawerLastTouchTimeRef = useRef<number | null>(null);
+  const drawerInitialScrollRef = useRef<number>(0);
+  const [drawerTranslateY, setDrawerTranslateY] = useState(0);
+  const [isDrawerDragging, setIsDrawerDragging] = useState(false);
+
+  // slide/animation timeout ref — used to reliably clear in-flight slide animations
+  const slideTimeoutRef = useRef<number | null>(null);
+
+  // Embla carousel for viewer (provides smooth native swipes)
+  const [emblaRef, emblaApi] = useEmblaCarousel({ containScroll: 'trimSnaps', skipSnaps: false });
+
+  // Sync Embla selection -> currentIndex
+  useEffect(() => {
+    if (!emblaApi) return;
+    const onSelect = () => {
+      const selected = emblaApi.selectedScrollSnap();
+      setCurrentIndex(selected);
+    };
+    emblaApi.on('select', onSelect);
+    return () => emblaApi.off('select', onSelect);
+  }, [emblaApi]);
+
+  // When viewer opens, ensure Embla is at the current index
+  useEffect(() => {
+    if (!emblaApi) return;
+    if (viewerOpen) {
+      emblaApi.scrollTo(currentIndex);
+    }
+  }, [emblaApi, viewerOpen, currentIndex]);
   
   // Audio player state
   const [currentAudio, setCurrentAudio] = useState<FileMetadata | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // detect mobile viewport
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     if (isAdmin) {
@@ -73,14 +125,128 @@ export function GalleryClient({
     }
   }, [router, isAdmin]);
 
+  // drag tracking for gallery swipe (follows finger)
+
+
   const openViewer = useCallback((index: number) => {
+    // cancel any in-flight slide cleanup and reset slide state to avoid stuck animations
+    if (slideTimeoutRef.current) {
+      clearTimeout(slideTimeoutRef.current);
+      slideTimeoutRef.current = null;
+    }
+    setIsSliding(false);
+    setPrevIndex(null);
+    setSlideDirection(null);
+    setSlideActive(false);
+
     setCurrentIndex(index);
     setViewerOpen(true);
+    // trigger a brief enter animation for a smoother open transition
+    setViewerJustOpened(true);
+    // ensure the flag always clears quickly (safety: also clear on animation end)
+    window.requestAnimationFrame(() => {
+      setTimeout(() => setViewerJustOpened(false), 220);
+    });
   }, []);
 
   const closeViewer = useCallback(() => {
     setViewerOpen(false);
+    setViewerJustOpened(false);
+    setIsSliding(false);
+    setPrevIndex(null);
+    setSlideDirection(null);
+    setSlideActive(false);
+    if (slideTimeoutRef.current) {
+      clearTimeout(slideTimeoutRef.current);
+      slideTimeoutRef.current = null;
+    }
+    setDrawerOpen(false);
   }, []);
+
+  // PhotoSwipe lightbox ref
+  const pswpRef = useRef<any>(null);
+
+  // cleanup any timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (slideTimeoutRef.current) {
+        clearTimeout(slideTimeoutRef.current);
+        slideTimeoutRef.current = null;
+      }
+      if (pswpRef.current) {
+        try { pswpRef.current.destroy(); } catch (e) {}
+        pswpRef.current = null;
+      }
+    };
+  }, []);
+
+  // Initialize PhotoSwipe lightbox for the grid on client
+  useEffect(() => {
+    try {
+      const lightbox = new PhotoSwipeLightbox({
+        gallery: '#pswp-gallery',
+        children: 'a',
+        pswpModule: PhotoSwipe,
+        showHideAnimationType: 'zoom'
+      });
+      lightbox.init();
+      pswpRef.current = lightbox;
+    } catch (e) {
+      // ignore if initialization fails
+      console.error('PhotoSwipe init error:', e);
+    }
+  }, []);
+
+  // Navigate with slide animation (gallery-style). If viewer is closed, just set index.
+  const navigateTo = useCallback((index: number) => {
+    if (index === currentIndex) return;
+
+    // If embla is active and viewer is open, delegate to embla for smooth navigation
+    try {
+      if (viewerOpen && emblaApi) {
+        emblaApi.scrollTo(index);
+        setCurrentIndex(index);
+        return;
+      }
+    } catch (e) {
+      /* fall back */
+    }
+
+    if (isSliding) return; // prevent overlapping animations
+
+    // if viewer isn't open yet, just jump
+    if (!viewerOpen) {
+      setCurrentIndex(index);
+      return;
+    }
+
+    const direction: 'left' | 'right' = index > currentIndex ? 'left' : 'right';
+    setPrevIndex(currentIndex);
+    setSlideDirection(direction);
+    setCurrentIndex(index);
+    setIsSliding(true);
+    setSlideActive(false);
+
+    // start the CSS transition on the next frame
+    requestAnimationFrame(() => setSlideActive(true));
+
+    // cleanup after animation duration — store timeout so we can cancel if viewer closes
+    if (slideTimeoutRef.current) {
+      clearTimeout(slideTimeoutRef.current);
+      slideTimeoutRef.current = null;
+    }
+    const timeout = window.setTimeout(() => {
+      setIsSliding(false);
+      setPrevIndex(null);
+      setSlideDirection(null);
+      setSlideActive(false);
+      if (slideTimeoutRef.current) {
+        clearTimeout(slideTimeoutRef.current);
+        slideTimeoutRef.current = null;
+      }
+    }, 350);
+    slideTimeoutRef.current = timeout;
+  }, [currentIndex, isSliding, viewerOpen, emblaApi]);
 
   const playAudio = useCallback((audioFile: FileMetadata) => {
     if (currentAudio?.['File Name'] === audioFile['File Name'] && isPlaying) {
@@ -140,10 +306,8 @@ export function GalleryClient({
 
   return (
     <>
-      {/* Modern App-Like Layout */}
       <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20">
         
-        {/* Header */}
         <GalleryHeader
           isAdmin={isAdmin}
           searchQuery={searchQuery}
@@ -151,45 +315,30 @@ export function GalleryClient({
           onLogout={handleLogout}
         />
 
-        {/* Content Area */}
         <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6">
           <Tabs defaultValue="photos" value={activeTab} onValueChange={setActiveTab}>
             
-            {/* Modern Tab Bar */}
             <div className="mb-4 sm:mb-6">
               <TabsList className="bg-muted/50 backdrop-blur-sm p-1.5 rounded-xl sm:rounded-2xl border-2 border-border/40 shadow-lg w-full grid grid-cols-4">
-                <TabsTrigger 
-                  value="photos" 
-                  className="rounded-lg sm:rounded-xl data-[state=active]:bg-background data-[state=active]:shadow-md transition-all px-2 sm:px-4 md:px-6 text-xs sm:text-sm"
-                >
+                <TabsTrigger value="photos" className="rounded-lg sm:rounded-xl data-[state=active]:bg-background data-[state=active]:shadow-md transition-all px-2 sm:px-4 md:px-6 text-xs sm:text-sm">
                   <ImageIcon className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
                   <span className="font-semibold">{filteredPhotos.length}</span>
                 </TabsTrigger>
-                <TabsTrigger 
-                  value="videos"
-                  className="rounded-lg sm:rounded-xl data-[state=active]:bg-background data-[state=active]:shadow-md transition-all px-2 sm:px-4 md:px-6 text-xs sm:text-sm"
-                >
+                <TabsTrigger value="videos" className="rounded-lg sm:rounded-xl data-[state=active]:bg-background data-[state=active]:shadow-md transition-all px-2 sm:px-4 md:px-6 text-xs sm:text-sm">
                   <VideoIcon className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
                   <span className="font-semibold">{filteredVideos.length}</span>
                 </TabsTrigger>
-                <TabsTrigger 
-                  value="audio"
-                  className="rounded-lg sm:rounded-xl data-[state=active]:bg-background data-[state=active]:shadow-md transition-all px-2 sm:px-4 md:px-6 text-xs sm:text-sm"
-                >
+                <TabsTrigger value="audio" className="rounded-lg sm:rounded-xl data-[state=active]:bg-background data-[state=active]:shadow-md transition-all px-2 sm:px-4 md:px-6 text-xs sm:text-sm">
                   <Music className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
                   <span className="font-semibold">{filteredAudio.length}</span>
                 </TabsTrigger>
-                <TabsTrigger 
-                  value="documents"
-                  className="rounded-lg sm:rounded-xl data-[state=active]:bg-background data-[state=active]:shadow-md transition-all px-2 sm:px-4 md:px-6 text-xs sm:text-sm"
-                >
+                <TabsTrigger value="documents" className="rounded-lg sm:rounded-xl data-[state=active]:bg-background data-[state=active]:shadow-md transition-all px-2 sm:px-4 md:px-6 text-xs sm:text-sm">
                   <FileText className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
                   <span className="font-semibold">{filteredDocuments.length}</span>
                 </TabsTrigger>
               </TabsList>
             </div>
 
-            {/* Photos Tab */}
             <TabsContent value="photos" className="mt-0 space-y-3 sm:space-y-4">
               {filteredPhotos.length > 0 && (
                 <p className="text-xs sm:text-sm text-muted-foreground px-1">
@@ -197,14 +346,30 @@ export function GalleryClient({
                 </p>
               )}
               
-              <div className="grid gap-2 sm:gap-3 md:gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+              <div id="pswp-gallery" className="grid gap-2 sm:gap-3 md:gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
                 {filteredPhotos.map((photo, index) => (
                   <PhotoCard 
                     key={photo['File Name']}
                     photo={photo}
                     index={index}
                     isAdmin={isAdmin}
-                    onView={openViewer}
+                    onView={(idx) => {
+                      console.debug('[gallery] PhotoCard onView', { idx, isMobile });
+                      if (isMobile) {
+                        // always open drawer on mobile
+                        setCurrentIndex(idx);
+                        setDrawerOpen(true);
+                        // ensure PhotoSwipe won't open
+                        try { pswpRef.current?.close(); } catch (e) {}
+                        return;
+                      }
+
+                      // If PhotoSwipe is initialized, open it for best transition
+                      if (pswpRef.current) {
+                        try { pswpRef.current.open(idx); return; } catch (e) {}
+                      }
+                      viewerOpen ? navigateTo(idx) : openViewer(idx);
+                    }}
                   />
                 ))}
               </div>
@@ -222,7 +387,6 @@ export function GalleryClient({
               )}
             </TabsContent>
 
-            {/* Videos Tab */}
             <TabsContent value="videos" className="mt-0 space-y-3 sm:space-y-4">
               {filteredVideos.length > 0 && (
                 <p className="text-xs sm:text-sm text-muted-foreground px-1">
@@ -232,35 +396,22 @@ export function GalleryClient({
               
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
                 {filteredVideos.map((video) => (
-                  <Card 
-                    key={video['File Name']} 
-                    className="overflow-hidden group border-2 border-border/40 hover:border-primary/40 rounded-xl sm:rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 bg-gradient-to-br from-card to-card/50 backdrop-blur-sm"
-                  >
+                  <Card key={video['File Name']} className="overflow-hidden group border-2 border-border/40 hover:border-primary/40 rounded-xl sm:rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 bg-gradient-to-br from-card to-card/50 backdrop-blur-sm">
                     <CardContent className="p-0 relative aspect-video bg-black/90">
-                      <video
-                        controls
-                        preload="metadata"
-                        src={video.path}
-                        className="w-full h-full rounded-t-xl sm:rounded-t-2xl"
-                        playsInline
-                      />
+                      <video controls preload="metadata" src={video.path} className="w-full h-full rounded-t-xl sm:rounded-t-2xl" playsInline />
                       <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <FileDetailsModal file={video}>
                           <Button variant="secondary" size="icon" className="h-7 w-7 sm:h-8 sm:w-8 rounded-full shadow-lg backdrop-blur-sm bg-background/90">
                             <Info className="h-3 w-3 sm:h-4 sm:w-4" />
                           </Button>
                         </FileDetailsModal>
-                        {isAdmin && (
-                          <DeleteButton fileName={video['File Name']} type="videos" />
-                        )}
+                        {isAdmin && <DeleteButton fileName={video['File Name']} type="videos" />}
                       </div>
                     </CardContent>
                     <CardFooter className="p-2 sm:p-3 bg-gradient-to-br from-muted/30 to-transparent">
                       <div className="w-full">
                         <p className="text-xs sm:text-sm font-semibold truncate w-full">{video['File Name']}</p>
-                        {video['Description'] && (
-                          <p className="text-xs text-muted-foreground truncate w-full">{video['Description']}</p>
-                        )}
+                        {video['Description'] && <p className="text-xs text-muted-foreground truncate w-full">{video['Description']}</p>}
                       </div>
                     </CardFooter>
                   </Card>
@@ -273,14 +424,11 @@ export function GalleryClient({
                     <VideoIcon className="h-8 w-8 sm:h-10 sm:w-10 text-muted-foreground/50" />
                   </div>
                   <p className="text-base sm:text-lg font-semibold text-muted-foreground">No videos found</p>
-                  <p className="text-xs sm:text-sm text-muted-foreground/70">
-                    {searchQuery ? 'Try a different search term' : 'Upload some videos to get started'}
-                  </p>
+                  <p className="text-xs sm:text-sm text-muted-foreground/70">{searchQuery ? 'Try a different search term' : 'Upload some videos to get started'}</p>
                 </div>
               )}
             </TabsContent>
 
-            {/* Audio Tab */}
             <TabsContent value="audio" className="mt-0 space-y-3 sm:space-y-4">
               {filteredAudio.length > 0 && (
                 <p className="text-xs sm:text-sm text-muted-foreground px-1">
@@ -290,42 +438,18 @@ export function GalleryClient({
               
               <div className="space-y-2 sm:space-y-3">
                 {filteredAudio.map((audioFile, index) => (
-                  <Card 
-                    key={audioFile['File Name']} 
-                    className={cn(
-                      "overflow-hidden border-2 transition-all duration-300 rounded-xl sm:rounded-2xl bg-gradient-to-br from-card to-card/50 backdrop-blur-sm",
-                      currentAudio?.['File Name'] === audioFile['File Name'] 
-                        ? "border-primary shadow-xl shadow-primary/20" 
-                        : "border-border/40 hover:border-primary/40 shadow-sm hover:shadow-lg"
-                    )}
-                  >
+                  <Card key={audioFile['File Name']} className={cn("overflow-hidden border-2 transition-all duration-300 rounded-xl sm:rounded-2xl bg-gradient-to-br from-card to-card/50 backdrop-blur-sm", currentAudio?.['File Name'] === audioFile['File Name'] ? "border-primary shadow-xl shadow-primary/20" : "border-border/40 hover:border-primary/40 shadow-sm hover:shadow-lg")}>
                     <CardContent className="p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
-                      <Button
-                        variant={currentAudio?.['File Name'] === audioFile['File Name'] && isPlaying ? "default" : "outline"}
-                        size="icon"
-                        onClick={() => playAudio(audioFile)}
-                        className="flex-shrink-0 h-10 w-10 sm:h-12 sm:w-12 rounded-full shadow-lg"
-                      >
-                        {currentAudio?.['File Name'] === audioFile['File Name'] && isPlaying ? (
-                          <Pause className="h-4 w-4 sm:h-5 sm:w-5" />
-                        ) : (
-                          <Play className="h-4 w-4 sm:h-5 sm:w-5" />
-                        )}
+                      <Button variant={currentAudio?.['File Name'] === audioFile['File Name'] && isPlaying ? "default" : "outline"} size="icon" onClick={() => playAudio(audioFile)} className="flex-shrink-0 h-10 w-10 sm:h-12 sm:w-12 rounded-full shadow-lg">
+                        {currentAudio?.['File Name'] === audioFile['File Name'] && isPlaying ? <Pause className="h-4 w-4 sm:h-5 sm:w-5" /> : <Play className="h-4 w-4 sm:h-5 sm:w-5" />}
                       </Button>
-
                       <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
                         <span className="text-xs sm:text-sm font-bold text-primary">{index + 1}</span>
                       </div>
-
                       <div className="flex-1 min-w-0">
                         <p className="font-semibold truncate text-sm sm:text-base">{audioFile['File Name']}</p>
-                        {audioFile['Description'] && (
-                          <p className="text-xs sm:text-sm text-muted-foreground truncate">
-                            {audioFile['Description']}
-                          </p>
-                        )}
+                        {audioFile['Description'] && <p className="text-xs sm:text-sm text-muted-foreground truncate">{audioFile['Description']}</p>}
                       </div>
-
                       <div className="flex items-center gap-1 flex-shrink-0">
                         <FileDetailsModal file={audioFile}>
                           <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-9 sm:w-9 rounded-full">
@@ -345,14 +469,11 @@ export function GalleryClient({
                     <Music className="h-8 w-8 sm:h-10 sm:w-10 text-muted-foreground/50" />
                   </div>
                   <p className="text-base sm:text-lg font-semibold text-muted-foreground">No audio files found</p>
-                  <p className="text-xs sm:text-sm text-muted-foreground/70">
-                    {searchQuery ? 'Try a different search term' : 'Upload some music to get started'}
-                  </p>
+                  <p className="text-xs sm:text-sm text-muted-foreground/70">{searchQuery ? 'Try a different search term' : 'Upload some music to get started'}</p>
                 </div>
               )}
             </TabsContent>
 
-            {/* Documents Tab */}
             <TabsContent value="documents" className="mt-0 space-y-3 sm:space-y-4">
               {filteredDocuments.length > 0 && (
                 <p className="text-xs sm:text-sm text-muted-foreground px-1">
@@ -362,29 +483,15 @@ export function GalleryClient({
               
               <div className="space-y-2 sm:space-y-3">
                 {filteredDocuments.map((doc) => (
-                  <Card 
-                    key={doc['File Name']} 
-                    className="overflow-hidden border-2 border-border/40 hover:border-primary/40 rounded-xl sm:rounded-2xl shadow-sm hover:shadow-lg transition-all duration-300 bg-gradient-to-br from-card to-card/50 backdrop-blur-sm"
-                  >
+                  <Card key={doc['File Name']} className="overflow-hidden border-2 border-border/40 hover:border-primary/40 rounded-xl sm:rounded-2xl shadow-sm hover:shadow-lg transition-all duration-300 bg-gradient-to-br from-card to-card/50 backdrop-blur-sm">
                     <CardContent className="p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
                       <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg sm:rounded-xl bg-orange-500/10 flex items-center justify-center flex-shrink-0">
                         <FileText className="h-5 w-5 sm:h-6 sm:w-6 text-orange-600 dark:text-orange-400" />
                       </div>
-
-                      <a
-                        href={doc.path}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex-1 min-w-0"
-                      >
+                      <a href={doc.path} target="_blank" rel="noopener noreferrer" className="flex-1 min-w-0">
                         <p className="font-semibold truncate text-sm sm:text-base">{doc['File Name']}</p>
-                        {doc['Description'] && (
-                          <p className="text-xs sm:text-sm text-muted-foreground truncate">
-                            {doc['Description']}
-                          </p>
-                        )}
+                        {doc['Description'] && <p className="text-xs sm:text-sm text-muted-foreground truncate">{doc['Description']}</p>}
                       </a>
-
                       <div className="flex items-center gap-1 flex-shrink-0">
                         <FileDetailsModal file={doc}>
                           <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-9 sm:w-9 rounded-full">
@@ -409,9 +516,7 @@ export function GalleryClient({
                     <FileText className="h-8 w-8 sm:h-10 sm:w-10 text-muted-foreground/50" />
                   </div>
                   <p className="text-base sm:text-lg font-semibold text-muted-foreground">No documents found</p>
-                  <p className="text-xs sm:text-sm text-muted-foreground/70">
-                    {searchQuery ? 'Try a different search term' : 'Upload some documents to get started'}
-                  </p>
+                  <p className="text-xs sm:text-sm text-muted-foreground/70">{searchQuery ? 'Try a different search term' : 'Upload some documents to get started'}</p>
                 </div>
               )}
             </TabsContent>
@@ -419,205 +524,187 @@ export function GalleryClient({
         </div>
       </div>
 
-      {/* Mobile Image Viewer - NO SLIDESHOW */}
+      {/* Image Viewer - Mobile Swipe + Desktop Arrows */}
       {viewerOpen && filteredPhotos.length > 0 && (
-        <div className="fixed inset-0 bg-black z-50 flex flex-col">
+        <div className="fixed inset-0 bg-black z-50">
           {/* Header */}
-          <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/90 to-transparent p-3 sm:p-4 z-20">
+          <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/90 to-transparent p-4 z-20">
             <div className="flex items-center justify-between">
-              <div className="text-white">
-                <p className="text-sm sm:text-base font-medium">
-                  {currentIndex + 1} / {filteredPhotos.length}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => {
-                    const drawer = document.getElementById('image-drawer');
-                    if (drawer) {
-                      drawer.classList.toggle('translate-y-0');
-                      drawer.classList.toggle('translate-y-full');
-                    }
-                  }}
-                  className="text-white hover:bg-white/20 h-9 w-9 sm:h-10 sm:w-10 rounded-full"
-                >
-                  <Info className="h-4 w-4 sm:h-5 sm:w-5" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={closeViewer}
-                  className="text-white hover:bg-white/20 h-9 w-9 sm:h-10 sm:w-10 rounded-full"
-                >
-                  <X className="h-4 w-4 sm:h-5 sm:w-5" />
-                </Button>
-              </div>
+              <span className="text-white text-sm font-medium">{currentIndex + 1} / {filteredPhotos.length}</span>
+              <button onClick={closeViewer} className="text-white hover:bg-white/20 h-10 w-10 rounded-full flex items-center justify-center transition">
+                <X className="h-5 w-5" />
+              </button>
             </div>
           </div>
 
-          {/* Image Container with Swipe */}
+          {/* Image with Embla carousel for smooth native swipes */}
+          <div className="h-full flex items-center justify-center relative">
+            <div className="w-full h-full" ref={emblaRef}>
+              <div className="flex h-full">
+                {filteredPhotos.map((photo, idx) => (
+                  <div key={photo['File Name']} className="relative w-full h-full flex-shrink-0">
+                    <div className="relative w-full h-full">
+                      <Image src={photo.path} alt={photo['File Name']} fill className="object-contain" sizes="100vw" priority quality={90} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Desktop Arrow Controls - HIDDEN ON MOBILE */}
+            {currentIndex > 0 && (
+              <button onClick={() => navigateTo(currentIndex - 1)} className="hidden md:flex absolute left-4 top-1/2 -translate-y-1/2 text-white bg-black/60 hover:bg-black/80 h-12 w-12 rounded-full items-center justify-center backdrop-blur-sm z-10">
+                <ChevronLeft className="h-6 w-6" />
+              </button>
+            )}
+            {currentIndex < filteredPhotos.length - 1 && (
+              <button onClick={() => navigateTo(currentIndex + 1)} className="hidden md:flex absolute right-4 top-1/2 -translate-y-1/2 text-white bg-black/60 hover:bg-black/80 h-12 w-12 rounded-full items-center justify-center backdrop-blur-sm z-10">
+                <ChevronRight className="h-6 w-6" />
+              </button>
+            )}
+          </div>
+
+          {/* Bottom Description - Always Visible, 2 Lines Max */}
           <div 
-            className="flex-1 relative overflow-hidden"
+            className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/95 to-transparent p-4 pb-6 z-20 cursor-pointer"
+            onClick={() => setDrawerOpen((s) => !s)}
             onTouchStart={(e) => {
-              const touch = e.touches[0];
-              (window as any).touchStartX = touch.clientX;
-              (window as any).touchStartY = touch.clientY;
+              (window as any).overlayStartY = e.touches[0].clientY;
             }}
             onTouchMove={(e) => {
-              if (!(window as any).touchStartX) return;
-              const touch = e.touches[0];
-              const diffX = touch.clientX - (window as any).touchStartX;
-              const diffY = Math.abs(touch.clientY - (window as any).touchStartY);
-              
-              if (diffY < 50) {
-                const img = document.getElementById('swipe-image');
-                if (img) {
-                  img.style.transform = `translateX(${diffX}px)`;
-                  img.style.transition = 'none';
-                }
+              const startY = (window as any).overlayStartY;
+              if (typeof startY !== 'number') return;
+              const delta = e.touches[0].clientY - startY;
+              // provide basic visual feedback by nudging drawer translate while dragging up
+              if (delta < 0) {
+                setIsDrawerDragging(true);
+                setDrawerTranslateY(Math.max(0, 100 + delta)); // not exact, just small feedback
               }
             }}
             onTouchEnd={(e) => {
-              const touch = e.changedTouches[0];
-              const diffX = touch.clientX - (window as any).touchStartX;
-              const diffY = Math.abs(touch.clientY - (window as any).touchStartY);
-              
-              const img = document.getElementById('swipe-image');
-              if (img) {
-                img.style.transform = 'translateX(0)';
-                img.style.transition = 'transform 0.3s ease-out';
-              }
-              
-              if (diffY < 50) {
-                if (diffX > 100 && currentIndex > 0) {
-                  setCurrentIndex(prev => prev - 1);
-                } else if (diffX < -100 && currentIndex < filteredPhotos.length - 1) {
-                  setCurrentIndex(prev => prev + 1);
+              const startY = (window as any).overlayStartY;
+              const endY = e.changedTouches[0].clientY;
+              (window as any).overlayStartY = null;
+              setIsDrawerDragging(false);
+              setDrawerTranslateY(0);
+              if (typeof startY === 'number') {
+                const diff = endY - startY;
+                if (diff < -80) {
+                  setDrawerOpen(true);
                 }
               }
-              
-              delete (window as any).touchStartX;
-              delete (window as any).touchStartY;
             }}
           >
-            <div id="swipe-image" className="absolute inset-0 flex items-center justify-center transition-transform duration-300 ease-out">
-              <Image
-                src={filteredPhotos[currentIndex].path}
-                alt={filteredPhotos[currentIndex]['File Name']}
-                fill
-                className="object-contain"
-                sizes="100vw"
-                priority
-                quality={90}
-              />
+            <p className="text-white font-semibold text-sm line-clamp-1">{filteredPhotos[currentIndex]['File Name']}</p>
+            {filteredPhotos[currentIndex]['Description'] && (
+              <p className="text-white/80 text-sm line-clamp-2 mt-2">{filteredPhotos[currentIndex]['Description']}</p>
+            )}
+            <div className="flex items-center justify-center mt-2">
+              <ChevronUp className="h-4 w-4 text-white/60" />
             </div>
-
-            {currentIndex > 0 && (
-              <div className="absolute left-0 top-1/2 -translate-y-1/2 w-16 sm:w-20 h-full bg-gradient-to-r from-white/5 to-transparent pointer-events-none" />
-            )}
-            {currentIndex < filteredPhotos.length - 1 && (
-              <div className="absolute right-0 top-1/2 -translate-y-1/2 w-16 sm:w-20 h-full bg-gradient-to-l from-white/5 to-transparent pointer-events-none" />
-            )}
           </div>
 
-          {/* Progress Dots */}
-          <div className="absolute bottom-24 sm:bottom-28 left-1/2 -translate-x-1/2 flex gap-1 sm:gap-1.5 z-10">
-            {filteredPhotos.map((_, index) => (
-              <div
-                key={index}
-                className={cn(
-                  "h-1 sm:h-1.5 rounded-full transition-all duration-300",
-                  index === currentIndex 
-                    ? "w-6 sm:w-8 bg-white" 
-                    : "w-1 sm:w-1.5 bg-white/40"
-                )}
-              />
-            ))}
-          </div>
+          {/* Bottom Drawer - Full Details */}
+          {/* backdrop - click outside to close */}
+          {drawerOpen && (
+            <div
+              className="fixed inset-0 bg-black/40"
+              style={{ zIndex: 29 }}
+              onClick={() => setDrawerOpen(false)}
+            />
+          )}
 
-          {/* Swipe Up Hint */}
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 text-white/60 z-10 animate-bounce">
-            <ChevronUp className="h-5 w-5 sm:h-6 sm:w-6" />
-            <p className="text-xs">Swipe up for details</p>
-          </div>
-
-          {/* Bottom Drawer */}
           <div
-            id="image-drawer"
-            className="absolute bottom-0 left-0 right-0 bg-background rounded-t-3xl shadow-2xl transition-transform duration-300 ease-out z-30 translate-y-full"
-          >
-            <div className="flex justify-center py-3 border-b border-border/40">
-              <button
-                onClick={() => {
-                  const drawer = document.getElementById('image-drawer');
-                  if (drawer) {
-                    drawer.classList.toggle('translate-y-0');
-                    drawer.classList.toggle('translate-y-full');
-                  }
-                }}
-                className="w-10 sm:w-12 h-1 sm:h-1.5 bg-muted-foreground/30 rounded-full active:bg-muted-foreground/50"
-              />
-            </div>
+            ref={drawerRef}
+            role="dialog"
+            aria-modal="true"
+            aria-hidden={!drawerOpen}
+            className={`absolute bottom-0 left-0 right-0 bg-background rounded-t-3xl shadow-2xl z-30 max-h-[80vh] overflow-auto ${isDrawerDragging ? '' : 'transition-transform duration-300'}`}
+            style={{ transform: `translateY(${drawerOpen ? (isDrawerDragging ? drawerTranslateY : 0) : '100%'})`, touchAction: 'pan-y' } as any}
+            onTouchStart={(e) => {
+              const y = e.touches[0].clientY;
+              drawerStartYRef.current = y;
+              drawerLastTouchYRef.current = y;
+              drawerLastTouchTimeRef.current = Date.now();
+              drawerInitialScrollRef.current = drawerRef.current?.scrollTop ?? 0;
+              setIsDrawerDragging(true);
+              setDrawerTranslateY(0);
+            }}
+            onTouchMove={(e) => {
+              const startY = drawerStartYRef.current;
+              if (startY === null) return;
+              const y = e.touches[0].clientY;
+              const delta = y - startY;
 
-            <div className="p-4 sm:p-6 max-h-[70vh] overflow-y-auto">
-              <div className="flex items-start justify-between mb-4">
-                <h2 className="text-lg sm:text-xl font-bold">File Details</h2>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => {
-                    const drawer = document.getElementById('image-drawer');
-                    if (drawer) {
-                      drawer.classList.add('translate-y-full');
-                      drawer.classList.remove('translate-y-0');
-                    }
-                  }}
-                  className="rounded-full -mt-2 -mr-2"
-                >
-                  <ChevronUp className="h-4 w-4 sm:h-5 sm:w-5" />
-                </Button>
+              // track last touch for velocity
+              drawerLastTouchYRef.current = y;
+              drawerLastTouchTimeRef.current = Date.now();
+
+              // if content is scrolled, don't intercept the pull-down
+              if (drawerInitialScrollRef.current > 0 && delta > 0) return;
+
+              if (delta > 0) {
+                e.preventDefault();
+                // apply rubber-band effect for large drags
+                const capped = Math.min(delta, window.innerHeight * 0.6);
+                setDrawerTranslateY(capped);
+              }
+            }}
+            onTouchEnd={() => {
+              const startY = drawerStartYRef.current ?? 0;
+              const lastY = drawerLastTouchYRef.current ?? startY;
+              const lastTime = drawerLastTouchTimeRef.current ?? Date.now();
+              const now = Date.now();
+              const delta = (lastY - startY) || 0; // positive if dragged down
+              const timeDiff = Math.max(1, now - lastTime);
+              const velocity = delta / timeDiff; // px per ms
+
+              setIsDrawerDragging(false);
+
+              const THRESHOLD = 110; // px
+              const VELOCITY_CLOSE = 0.5; // px/ms (~500px/s)
+
+              if (drawerTranslateY > THRESHOLD || velocity > VELOCITY_CLOSE) {
+                setDrawerOpen(false);
+              } else {
+                setDrawerTranslateY(0);
+              }
+
+              drawerStartYRef.current = null;
+              drawerLastTouchYRef.current = null;
+              drawerLastTouchTimeRef.current = null;
+            }}
+          >
+            <div className="relative">
+              <div className="flex justify-center py-3 border-b">
+                <div className="w-12 h-1 bg-muted-foreground/30 rounded-full" />
               </div>
 
-              <div className="space-y-3 sm:space-y-4">
-                <div className="bg-muted/30 rounded-xl sm:rounded-2xl p-3 sm:p-4">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-                    File Name
-                  </p>
-                  <p className="text-sm font-medium break-all">{filteredPhotos[currentIndex]['File Name']}</p>
+              {/* Move Delete to top-right inside drawer */}
+              {isAdmin && (
+                <div className="absolute right-4 top-4">
+                  <DeleteButton fileName={filteredPhotos[currentIndex]['File Name']} type="images" />
                 </div>
+              )}
+            </div>
 
+            <div className="p-6 space-y-4">
+              <h2 className="text-xl font-bold">Details</h2>
+              <div className="space-y-3">
+                <div className="bg-muted/30 rounded-xl p-4">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase mb-1">File Name</p>
+                  <p className="text-sm font-medium">{filteredPhotos[currentIndex]['File Name']}</p>
+                </div>
                 {filteredPhotos[currentIndex]['Description'] && (
-                  <div className="bg-muted/30 rounded-xl sm:rounded-2xl p-3 sm:p-4">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-                      Description
-                    </p>
-                    <p className="text-sm">{filteredPhotos[currentIndex]['Description']}</p>
+                  <div className="bg-muted/30 rounded-xl p-4">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Description</p>
+                    <p className="text-sm break-words">{filteredPhotos[currentIndex]['Description']}</p>
                   </div>
                 )}
-
                 {filteredPhotos[currentIndex]['Capture Date'] && (
-                  <div className="bg-muted/30 rounded-xl sm:rounded-2xl p-3 sm:p-4">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-                      Capture Date
-                    </p>
+                  <div className="bg-muted/30 rounded-xl p-4">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Capture Date</p>
                     <p className="text-sm">{filteredPhotos[currentIndex]['Capture Date']}</p>
-                  </div>
-                )}
-
-                {filteredPhotos[currentIndex]['Upload Date'] && (
-                  <div className="bg-muted/30 rounded-xl sm:rounded-2xl p-3 sm:p-4">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-                      Upload Date
-                    </p>
-                    <p className="text-sm">{filteredPhotos[currentIndex]['Upload Date']}</p>
-                  </div>
-                )}
-
-                {isAdmin && (
-                  <div className="pt-3 sm:pt-4 border-t border-border/40">
-                    <DeleteButton fileName={filteredPhotos[currentIndex]['File Name']} type="images" />
                   </div>
                 )}
               </div>
@@ -626,13 +713,7 @@ export function GalleryClient({
         </div>
       )}
 
-      {/* Hidden Audio Player */}
-      <audio
-        ref={audioRef}
-        onEnded={() => setIsPlaying(false)}
-        onPause={() => setIsPlaying(false)}
-        onPlay={() => setIsPlaying(true)}
-      />
+      <audio ref={audioRef} onEnded={() => setIsPlaying(false)} onPause={() => setIsPlaying(false)} onPlay={() => setIsPlaying(true)} />
     </>
   );
 }

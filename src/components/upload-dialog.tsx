@@ -26,10 +26,14 @@ export function UploadDialog({ type }: UploadDialogProps) {
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [description, setDescription] = useState('');
-  const { uploadFile } = useUpload();
+  const { uploadFile, uploadingFiles } = useUpload();
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = () => {
+    // prevent concurrent uploads
+    const isUploading = uploadingFiles.some((u) => u.status === 'uploading');
+    if (isUploading) return;
+
     if (file) {
       uploadFile(file, description, type);
       setOpen(false);
@@ -75,8 +79,7 @@ export function UploadDialog({ type }: UploadDialogProps) {
               ref={inputRef}
               required
               onChange={(e) => setFile(e.target.files ? e.target.files[0] : null)}
-            />
-          </div>
+            />            <p className="text-xs text-muted-foreground">Max file size: 50 MB · One file at a time</p>          </div>
           <div className="grid w-full gap-1.5">
             <Label htmlFor="description">Description (optional)</Label>
             <Textarea
@@ -91,13 +94,18 @@ export function UploadDialog({ type }: UploadDialogProps) {
           <DialogClose asChild>
             <Button variant="outline">Cancel</Button>
           </DialogClose>
-          <Button
-            onClick={handleSubmit}
-            disabled={!file}
-          >
-            Upload
-            <Upload className="ml-2 h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-2">
+            {uploadingFiles.some(u => u.status === 'uploading') && (
+              <p className="text-xs text-muted-foreground">An upload is in progress — please wait.</p>
+            )}
+            <Button
+              onClick={handleSubmit}
+              disabled={!file || uploadingFiles.some(u => u.status === 'uploading')}
+            >
+              Upload
+              <Upload className="ml-2 h-4 w-4" />
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -34,6 +34,8 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     description: string,
     type: 'images' | 'videos' | 'documents'
   ) => {
+    const MAX_UPLOAD_SIZE = 50 * 1024 * 1024; // 50 MB (match server limit)
+
     const newFile: UploadingFile = {
       id: `${file.name}-${new Date().getTime()}`,
       file,
@@ -42,6 +44,23 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     };
 
     setUploadingFiles((prev) => [newFile, ...prev]);
+
+    // Client-side size validation
+    if (file.size > MAX_UPLOAD_SIZE) {
+      setUploadingFiles((prev) =>
+        prev.map((f) =>
+          f.id === newFile.id
+            ? {
+                ...f,
+                status: 'error',
+                progress: 100,
+                message: `File is too large (max ${MAX_UPLOAD_SIZE / 1024 / 1024} MB).`,
+              }
+            : f
+        )
+      );
+      return;
+    }
 
     // Use a small timeout to ensure the UI updates to 'pending' before 'uploading'
     setTimeout(async () => {
@@ -58,7 +77,13 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       formData.append('type', type);
       formData.append('description', description);
 
-      const result = await serverUploadFile(null, formData);
+      let result: { success: boolean; message?: string } = { success: false, message: 'Unknown error' };
+      try {
+        result = await serverUploadFile(null, formData);
+      } catch (err: any) {
+        console.error('serverUploadFile threw:', err);
+        result = { success: false, message: err?.message || 'Upload failed' };
+      }
 
       setUploadingFiles((prev) =>
         prev.map((f) =>

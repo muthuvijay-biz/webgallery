@@ -72,16 +72,26 @@ export function SmartUploadDialog() {
 
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(e.target.files || []);
-    
-    const categorizedFiles = await Promise.all(
-      selectedFiles.map(async (file) => {
-        const category = detectFileCategory(file);
-        const preview = await createPreview(file, category);
-        return { file, category, preview };
-      })
-    );
-    
-    setFiles((prev) => [...prev, ...categorizedFiles]);
+    if (selectedFiles.length === 0) return;
+
+    // Only allow one file at a time (enforce UI-level restriction)
+    const file = selectedFiles[0];
+
+    const MAX_BYTES = 50 * 1024 * 1024; // 50 MB
+    if (file.size > MAX_BYTES) {
+      useToast().toast?.({
+        title: 'File too large',
+        description: `Maximum file size is ${MAX_BYTES / 1024 / 1024} MB.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const category = detectFileCategory(file);
+    const preview = await createPreview(file, category);
+
+    // Replace any existing selection with the new single file
+    setFiles([{ file, category, preview }]);
   }, []);
 
   const removeFile = (index: number) => {
@@ -91,21 +101,27 @@ export function SmartUploadDialog() {
   const handleUpload = () => {
     if (files.length === 0) {
       toast({
-        title: '⚠️ No files selected',
-        description: 'Please select at least one file to upload.',
+        title: '⚠️ No file selected',
+        description: 'Please select a file to upload.',
         variant: 'destructive',
       });
       return;
     }
 
-    // Use the existing uploadFile function from context for each file
-    files.forEach(({ file, category }) => {
-      uploadFile(file, description, category);
-    });
+    const { file, category } = files[0];
+
+    // Client-side safety check (single file + size already enforced on select)
+    const MAX_BYTES = 50 * 1024 * 1024;
+    if (file.size > MAX_BYTES) {
+      toast({ title: 'File too large', description: `Maximum file size is ${MAX_BYTES / 1024 / 1024} MB.`, variant: 'destructive' });
+      return;
+    }
+
+    uploadFile(file, description, category);
 
     toast({
-      title: '📤 Uploading!',
-      description: `${files.length} file(s) are being uploaded...`,
+      title: '📤 Uploading',
+      description: `Uploading 1 file...`,
     });
 
     // Clear and close
@@ -155,18 +171,16 @@ export function SmartUploadDialog() {
 
         <div className="space-y-4 sm:space-y-6">
           <div className="space-y-2 sm:space-y-3">
-            <Label htmlFor="file-upload" className="text-sm sm:text-base font-semibold">Select Files</Label>
+            <Label htmlFor="file-upload" className="text-sm sm:text-base font-semibold">Select File</Label>
             <Input
               id="file-upload"
               type="file"
-              multiple
               onChange={handleFileSelect}
               className="rounded-2xl border-2 border-dashed h-12 sm:h-14 text-sm file:mr-4 file:rounded-full file:border-0 file:bg-primary file:text-primary-foreground file:font-semibold file:text-sm"
               accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt"
             />
-            <p className="text-xs sm:text-sm text-muted-foreground">
-              📸 Images • 🎥 Videos • 🎵 Audio • 📄 Documents
-            </p>
+            <p className="text-xs sm:text-sm text-muted-foreground">Max file size: 50 MB · One file at a time</p>
+            <p className="text-xs sm:text-sm text-muted-foreground mt-1">📸 Images • 🎥 Videos • 🎵 Audio • 📄 Documents</p>
           </div>
 
           {files.length > 0 && (
