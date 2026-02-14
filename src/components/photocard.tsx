@@ -103,6 +103,14 @@ export function PhotoCard({ photo, index, isAdmin, onView }: PhotoCardProps) {
             console.debug('[photocard] touchend -> onView', index);
             onView(index);
           }}
+          onContextMenu={(e) => {
+            // fallback for emulators / devices that fire contextmenu on long-press
+            if (!isMobile) return;
+            e.preventDefault();
+            setActionsOpen(true);
+            lastTapRef.current = Date.now();
+            console.debug('[photocard] contextmenu -> open actions', index);
+          }}
         >
       <CardContent className="p-0 relative aspect-square bg-muted/30">
         {/* Anchor for PhotoSwipe: on mobile intercept the click and open the app drawer; on desktop let PhotoSwipe's listener handle it */}
@@ -128,7 +136,7 @@ export function PhotoCard({ photo, index, isAdmin, onView }: PhotoCardProps) {
           />
         </a>
 
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
         
         {/* Action Buttons */}
         <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 md:group-hover:opacity-100 transition-opacity duration-300 pointer-events-none md:pointer-events-auto" onClick={(e) => e.stopPropagation()}>
@@ -155,7 +163,7 @@ export function PhotoCard({ photo, index, isAdmin, onView }: PhotoCardProps) {
         </PopoverContent>
 
         {/* File Name & Description Overlay */}
-        <div className="absolute bottom-0 left-0 right-0 p-2 sm:p-3 translate-y-0 md:translate-y-full md:group-hover:translate-y-0 transition-transform duration-300 space-y-0.5 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
+        <div className="absolute bottom-0 left-0 right-0 p-2 sm:p-3 translate-y-0 md:translate-y-full md:group-hover:translate-y-0 transition-transform duration-300 space-y-0.5 bg-gradient-to-t from-black/60 via-black/30 to-transparent pointer-events-none">
           <p className="text-xs sm:text-sm font-semibold text-white truncate drop-shadow-lg">
             {photo['File Name']}
           </p>
@@ -170,5 +178,18 @@ export function PhotoCard({ photo, index, isAdmin, onView }: PhotoCardProps) {
         </div>
       </CardContent>
     </Card>
+    </PopoverTrigger>
+
+    <PopoverContent side="top" align="center" className="md:hidden !w-48 p-2">
+      <div className="flex gap-2 justify-center">
+        <FileDetailsModal file={photo}>
+          <Button size="sm" className="w-full">Info</Button>
+        </FileDetailsModal>
+        {isAdmin && (
+          <DeleteButton fileName={photo['File Name']} type="images" />
+        )}
+      </div>
+    </PopoverContent>
+  </Popover>
   );
 }

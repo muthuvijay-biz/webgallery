@@ -354,9 +354,10 @@ export function GalleryClient({
                     index={index}
                     isAdmin={isAdmin}
                     onView={(idx) => {
-                      console.debug('[gallery] PhotoCard onView', { idx, isMobile });
-                      if (isMobile) {
-                        // always open drawer on mobile
+                      const hasTouch = typeof window !== 'undefined' && (navigator.maxTouchPoints > 0 || 'ontouchstart' in window);
+                      console.debug('[gallery] PhotoCard onView', { idx, isMobile, hasTouch });
+                      if (isMobile || hasTouch) {
+                        // always open drawer on mobile / touch-capable devices
                         setCurrentIndex(idx);
                         setDrawerOpen(true);
                         // ensure PhotoSwipe won't open
