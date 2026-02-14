@@ -29,7 +29,7 @@ export function PhotoCard({ photo, index, isAdmin, onView }: PhotoCardProps) {
           className="object-contain group-hover:scale-105 transition-transform duration-500"
           sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, (max-width: 1280px) 20vw, 16vw"
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
         
         {/* Action Buttons */}
         <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300" onClick={(e) => e.stopPropagation()}>
@@ -43,11 +43,14 @@ export function PhotoCard({ photo, index, isAdmin, onView }: PhotoCardProps) {
           )}
         </div>
 
-        {/* File Name Overlay */}
-        <div className="absolute bottom-0 left-0 right-0 p-2 sm:p-3 translate-y-full group-hover:translate-y-0 transition-transform duration-300">
+        {/* File Name & Description Overlay */}
+        <div className="absolute bottom-0 left-0 right-0 p-2 sm:p-3 translate-y-full group-hover:translate-y-0 transition-transform duration-300 space-y-0.5">
           <p className="text-xs sm:text-sm font-semibold text-white truncate drop-shadow-lg">
             {photo['File Name']}
           </p>
+          {photo['Description'] && (
+            <p className="text-xs text-white/80 truncate drop-shadow-lg">{photo['Description']}</p>
+          )}
         </div>
       </CardContent>
     </Card>

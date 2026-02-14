@@ -360,7 +360,12 @@ export function GalleryClient({
                       </div>
                     </CardContent>
                     <CardFooter className="p-2 sm:p-3 bg-gradient-to-br from-muted/30 to-transparent">
-                      <p className="text-xs sm:text-sm font-semibold truncate w-full">{video['File Name']}</p>
+                      <div className="w-full">
+                        <p className="text-xs sm:text-sm font-semibold truncate w-full">{video['File Name']}</p>
+                        {video['Description'] && (
+                          <p className="text-xs text-muted-foreground truncate w-full">{video['Description']}</p>
+                        )}
+                      </div>
                     </CardFooter>
                   </Card>
                 ))}

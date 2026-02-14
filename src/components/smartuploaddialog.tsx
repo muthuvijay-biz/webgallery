@@ -231,12 +231,16 @@ export function SmartUploadDialog() {
           )}
 
           <div className="space-y-2 sm:space-y-3">
-            <Label htmlFor="description" className="text-sm sm:text-base font-semibold">Description (Optional)</Label>
+            <div className="flex justify-between items-center">
+                <Label htmlFor="description" className="text-sm sm:text-base font-semibold">Description (Optional)</Label>
+                <span className="text-xs text-muted-foreground">{description.length} / 500</span>
+            </div>
             <Textarea
               id="description"
-              placeholder="Add a description..."
+              placeholder="Add a description for all selected files..."
               value={description}
               onChange={(e) => setDescription(e.target.value)}
+              maxLength={500}
               rows={3}
               className="rounded-2xl resize-none text-sm sm:text-base"
             />
