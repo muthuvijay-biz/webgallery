@@ -51,18 +51,20 @@ export async function uploadFile(prevState: any, formData: FormData) {
 
     // If caller requested an external/reference-only entry (YouTube, Drive, or user choice)
     if (externalFlag) {
-      const inferredName = clientFileName || (() => {
+      // derive a trimmed display name (preserve for UI) and sanitize for on-disk/bucket name
+      const rawInferred = (clientFileName || (() => {
         try {
-          return decodeURIComponent(new URL(url).pathname.split('/').filter(Boolean).pop() || `file-${Date.now()}`);
+          return decodeURIComponent(new URL(url).pathname.split('/').filter(Boolean).pop() || '');
         } catch (e) {
-          return `file-${Date.now()}`;
+          return '';
         }
-      })();
+      })() || `file-${Date.now()}`);
+      const displayName = (String(rawInferred)).trim() || `file-${Date.now()}`;
 
       const uploadDir = join(process.cwd(), 'public', 'uploads', type);
-      const sanitizedFileName = `${inferredName.replace(/[^a-zA-Z0-9.\-_]/g, '_')}.link`;
+      const sanitizedFileName = `${displayName.replace(/[^a-zA-Z0-9.\-_]/g, '_')}.link`;
       const placeholderPath = join(uploadDir, sanitizedFileName);
-      const meta = { description: description || null, externalUrl: url, mime: clientMime || null };
+      const meta = { description: description || null, externalUrl: url, mime: clientMime || null, displayName };
 
       try {
         if (process.env.USE_SUPABASE === 'true') {
@@ -112,13 +114,14 @@ export async function uploadFile(prevState: any, formData: FormData) {
 
       const buffer = Buffer.from(arrayBuffer);
       const contentType = resp.headers.get('content-type') || clientMime || 'application/octet-stream';
-      const inferredName = clientFileName || (() => {
+      const rawInferred = clientFileName || (() => {
         try {
-          return decodeURIComponent(new URL(url).pathname.split('/').filter(Boolean).pop() || `file-${Date.now()}`);
+          return decodeURIComponent(new URL(url).pathname.split('/').filter(Boolean).pop() || '');
         } catch (e) {
-          return `file-${Date.now()}`;
+          return '';
         }
-      })();
+      })() || `file-${Date.now()}`;
+      const inferredName = String(rawInferred).trim() || `file-${Date.now()}`;
 
       const uploadDir = join(process.cwd(), 'public', 'uploads', type);
       const sanitizedFileName = inferredName.replace(/[^a-zA-Z0-9.\-_]/g, '_');
@@ -144,7 +147,7 @@ export async function uploadFile(prevState: any, formData: FormData) {
             await supabaseAdmin
               .storage
               .from(bucket)
-              .upload(`${dest}.json`, Buffer.from(JSON.stringify({ description })), { contentType: 'application/json', upsert: true })
+              .upload(`${dest}.json`, Buffer.from(JSON.stringify({ description, displayName: inferredName })), { contentType: 'application/json', upsert: true })
               .catch(() => {});
           }
 
@@ -169,7 +172,7 @@ export async function uploadFile(prevState: any, formData: FormData) {
         await mkdir(uploadDir, { recursive: true });
         await writeFile(path, buffer);
         if (description) {
-          await writeFile(descriptionPath, JSON.stringify({ description }));
+          await writeFile(descriptionPath, JSON.stringify({ description, displayName: inferredName }));
         }
         revalidatePath('/');
         revalidatePath('/uploads');
@@ -204,9 +207,10 @@ export async function uploadFile(prevState: any, formData: FormData) {
   const bytes = await file.arrayBuffer();
   const buffer = Buffer.from(bytes);
 
+  const displayName = String(file.name || '').trim() || `file-${Date.now()}`;
   const uploadDir = join(process.cwd(), 'public', 'uploads', type);
-  // Sanitize file name to prevent directory traversal
-  const sanitizedFileName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+  // Sanitize file name to prevent directory traversal (sanitize from trimmed displayName)
+  const sanitizedFileName = displayName.replace(/[^a-zA-Z0-9.\-_]/g, '_');
   const path = join(uploadDir, sanitizedFileName);
   const descriptionPath = `${path}.json`;
 
@@ -229,7 +233,7 @@ export async function uploadFile(prevState: any, formData: FormData) {
         await supabaseAdmin
           .storage
           .from(bucket)
-          .upload(`${dest}.json`, Buffer.from(JSON.stringify({ description })), { contentType: 'application/json', upsert: true })
+          .upload(`${dest}.json`, Buffer.from(JSON.stringify({ description, displayName })), { contentType: 'application/json', upsert: true })
           .catch(() => {});
       }
 
@@ -255,7 +259,7 @@ export async function uploadFile(prevState: any, formData: FormData) {
     await mkdir(uploadDir, { recursive: true });
     await writeFile(path, buffer);
     if (description) {
-      await writeFile(descriptionPath, JSON.stringify({ description }));
+      await writeFile(descriptionPath, JSON.stringify({ description, displayName }));
     }
     revalidatePath('/');
     revalidatePath('/uploads');
@@ -275,7 +279,7 @@ export async function deleteFile(fileName: string, type: string) {
     return { success: false, message: 'Invalid file information.' };
   }
 
-  const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+  const sanitizedFileName = fileName.trim().replace(/[^a-zA-Z0-9.\-_]/g, '_');
   const tryNames = [sanitizedFileName, `${sanitizedFileName}.link`];
 
   try {

@@ -103,7 +103,7 @@ export function PhotoCard({ photo, index, isAdmin }: PhotoCardProps) {
             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/70 to-transparent p-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-10">
               <div className="flex items-center gap-2">
                 <p className="text-white text-xs sm:text-sm font-semibold truncate">{photo['File Name']}</p>
-                {(photo['File Size'] === 'External' || String(photo.storedName || '').toLowerCase().endsWith('.link')) && (
+                {(photo['File Size'] === 'External' || String(photo.storedName || '').toLowerCase().endsWith('.link') || (String(photo.path || '').startsWith('http') && !String(photo.path || '').includes('/uploads/')) || (String(photo.path || '').includes('/uploads/') && !/\.[a-z0-9]{2,6}$/i.test(String(photo['File Name'] || '')))) && (
                   <Badge variant="outline" className="text-[11px] px-2 py-0.5 bg-white/8 border-muted-foreground/10">
                     <LinkIcon className="w-3 h-3 mr-1" />
                     External

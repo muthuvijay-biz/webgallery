@@ -21,7 +21,7 @@ type UploadContextType = {
     file: File | RemoteFileDescriptor,
     description: string,
     type: 'images' | 'videos' | 'documents' | 'audios'
-  ) => void;
+  ) => Promise<void>;
   clearCompleted: () => void;
   clearAll: () => void;
 };
@@ -32,16 +32,17 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
 
   const uploadFile = async (
-    fileOrUrl: File | { url: string; name?: string; size?: number; mime?: string },
+    fileOrUrl: File | RemoteFileDescriptor,
     description: string,
     type: 'images' | 'videos' | 'documents' | 'audios'
   ) => {
     const MAX_UPLOAD_SIZE = 50 * 1024 * 1024; // 50 MB (match server limit)
 
-    const fileName = 'name' in fileOrUrl ? fileOrUrl.name ?? 'remote-file' : fileOrUrl.name;
+    const fileName = fileOrUrl instanceof File ? fileOrUrl.name : ((fileOrUrl as RemoteFileDescriptor).name ?? 'remote-file');
+    const fileNameTrimmed = String(fileName || '').trim() || fileName;
 
     const newFile: UploadingFile = {
-      id: `${fileName}-${new Date().getTime()}`,
+      id: `${fileNameTrimmed}-${new Date().getTime()}`,
       file: fileOrUrl as any,
       status: 'pending',
       progress: 0,
@@ -84,9 +85,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         formData.append('file', fileOrUrl);
       } else {
         formData.append('url', fileOrUrl.url || '');
-        if (fileOrUrl.name) formData.append('fileName', fileOrUrl.name);
-        if (fileOrUrl.mime) formData.append('mime', fileOrUrl.mime);
-        if ((fileOrUrl as any).external) formData.append('external', 'true');
+        if (fileOrUrl.name) formData.append('fileName', String(fileOrUrl.name).trim());
       }
 
       formData.append('type', type);

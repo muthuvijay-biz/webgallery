@@ -168,7 +168,7 @@ export function SmartUploadDialog() {
     try {
       // validate url first
       const parsed = new URL(url);
-      const name = extractFileNameFromUrl(url); // may be empty — prompt user
+      const name = extractFileNameFromUrl(url).trim(); // may be empty — prompt user
       const category = detectCategoryFromUrl(url);
       const preview = category === 'images' ? url : undefined;
       // default to external for known hosts (YouTube/Drive) — otherwise we'll attempt to fetch the file server-side
@@ -237,10 +237,12 @@ export function SmartUploadDialog() {
 
   // update filename for remote descriptors (and allow editing before upload)
   const updateFileName = (index: number, newName: string) => {
+    // trim leading/trailing whitespace immediately (preserve internal spaces)
+    const trimmed = newName.trim();
     setFiles((prev) => prev.map((f, i) => {
       if (i !== index) return f;
       if ('url' in f.file) {
-        const updatedFile = { ...(f.file as RemoteInput), name: newName };
+        const updatedFile = { ...(f.file as RemoteInput), name: trimmed };
         return { ...f, file: updatedFile };
       }
       return f;

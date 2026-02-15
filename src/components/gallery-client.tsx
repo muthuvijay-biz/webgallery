@@ -27,6 +27,158 @@ interface GalleryClientProps {
 export function GalleryClient({ photos, videos, documents, audios, isAdmin }: GalleryClientProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'photos' | 'videos' | 'documents' | 'audios'>('photos');
+
+  // Small child component to resolve placeholder files (local/.link or signed URLs)
+  function VideoTile({ video }: { video: FileMetadata }) {
+    const [resolved, setResolved] = useState<string>(video.path);
+    useEffect(() => {
+      let mounted = true;
+      const tryResolve = async () => {
+        try {
+          // if already an external URL, nothing to do
+          if (String(video.path || '').startsWith('http') && !String(video.path || '').includes('/uploads/')) {
+            setResolved(video.path);
+            return;
+          }
+
+          // Probe uploads/signed URLs for placeholder text (HEAD first, then small-text GET).
+          const pathStr = String(video.path || '');
+          const shouldProbe = pathStr.startsWith('/uploads/') || pathStr.includes('/storage/v1/object') || String(video.storedName || '').toLowerCase().endsWith('.link') || video['File Size'] === 'External';
+          if (!shouldProbe) return;
+
+          // Try HEAD to detect small/text content without downloading large binaries.
+          try {
+            let probeOk = false;
+            const head = await fetch(video.path, { method: 'HEAD', cache: 'no-store' }).catch(() => null);
+            if (head && head.ok) {
+              const ct = (head.headers.get('content-type') || '').toLowerCase();
+              const cl = parseInt(head.headers.get('content-length') || '0', 10) || 0;
+              if (ct.startsWith('text') || ct.includes('json') || (cl > 0 && cl < 8192)) {
+                probeOk = true;
+              }
+            }
+
+            // Fallback: attempt a short GET with timeout — only for small/likely text placeholders
+            if (!probeOk) {
+              // if HEAD didn't indicate text/small, still allow a short timeout GET for uploads/signed urls
+              const ac = new AbortController();
+              const to = setTimeout(() => ac.abort(), 1500);
+              const quick = await fetch(video.path, { cache: 'no-store', signal: ac.signal }).catch(() => null);
+              clearTimeout(to);
+              if (quick && quick.ok) {
+                const cth = (quick.headers.get('content-type') || '').toLowerCase();
+                const clh = parseInt(quick.headers.get('content-length') || '0', 10) || 0;
+                if (cth.startsWith('text') || cth.includes('json') || clh < 8192) probeOk = true;
+              }
+            }
+
+            if (!probeOk) return;
+
+            // safe to read body (expected small text)
+            const bodyText = await fetch(video.path, { cache: 'no-store' }).then(r => r.text()).catch(() => '');
+            const body = String(bodyText || '');
+            const m = body.match(/external:\s*(\S+)/i) || body.match(/https?:\/\/[^\s"'\)\]]+/i);
+            if (m && mounted) {
+              const raw = m[1] || m[0];
+              const resolvedUrl = String(raw || '').replace(/^['\"]+/, '').replace(/[)\]"'\.,;:]+$/g, '').trim();
+              // basic validation: only accept absolute http(s) URLs and reject known error placeholders
+              try {
+                const parsed = new URL(resolvedUrl);
+                if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') && !/error_204|jserror/i.test(resolvedUrl)) {
+                  setResolved(parsed.toString());
+                  console.log('[VideoTile] placeholder probe ->', video['File Name'], '->', parsed.toString());
+                  return;
+                }
+              } catch (e) {
+                // invalid URL — ignore and continue probing
+              }
+            }
+          } catch (err) {
+            // ignore probe errors and silently continue
+          }
+
+          // also try companion JSON URL if available (works for public storage or relative /uploads/ paths)
+          try {
+            // do NOT attempt companion JSON fetch for signed URLs (they include query tokens)
+            if (!String(video.path || '').includes('?') && (String(video.path || '').startsWith('/uploads/') || String(video.path || '').includes('/storage/v1/object/public/'))) {
+              const jsonUrl = `${video.path}.json`;
+              const jres = await fetch(jsonUrl).catch(() => null);
+              if (jres && jres.ok) {
+                const j = await jres.json().catch(() => null);
+                if (j && typeof j.externalUrl === 'string' && mounted) {
+                  setResolved(String(j.externalUrl));
+                  console.log('[VideoTile] resolved from companion JSON', video['File Name'], '->', j.externalUrl);
+                  return;
+                }
+              }
+            }
+          } catch (e) {
+            /* ignore */
+          }
+        } catch (err) {
+          // ignore
+        }
+      };
+      tryResolve();
+      return () => { mounted = false; };
+    }, [video.path, video.storedName, video['File Size']]);
+
+    // debug log for problem filenames
+    useEffect(() => {
+      if (video['File Name'] === 'Ant' || video['File Name'] === 'Filename2') {
+        console.log('[GalleryClient] video item', video['File Name'], { path: video.path, storedName: video.storedName, fileSize: video['File Size'], description: video['Description'], resolved });
+      }
+    }, [resolved, video]);
+
+    // embed detection (same logic as gallery-client) but uses resolved path
+    const src = String(resolved || video.path || '');
+    const getEmbed = (urlStr: string) => {
+      try {
+        const u = new URL(urlStr);
+        const host = u.hostname.toLowerCase();
+        if (/youtube\.com|youtu\.be/.test(host)) {
+          let id = '';
+          if (host.includes('youtu.be')) id = u.pathname.slice(1);
+          else id = u.searchParams.get('v') || '';
+          if (!id) {
+            const m = u.pathname.match(/\/embed\/(.+)/) || u.pathname.match(/\/v\/(.+)/);
+            if (m) id = m[1] || '';
+          }
+          return id ? `https://www.youtube.com/embed/${id}` : null;
+        }
+        if (host.includes('vimeo.com')) {
+          const m = u.pathname.match(/\/(?:video\/)?(\d+)/);
+          if (m) return `https://player.vimeo.com/video/${m[1]}`;
+        }
+        if (host.includes('drive.google.com') || host.includes('docs.google.com')) {
+          const idFromPath = (u.pathname.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || [])[1];
+          const idFromQ = u.searchParams.get('id');
+          const id = idFromPath || idFromQ || '';
+          if (id) return `https://drive.google.com/file/d/${id}/preview`;
+        }
+      } catch (e) {
+        return null;
+      }
+      return null;
+    };
+
+    const embed = getEmbed(src);
+    if (embed) {
+      return (
+        <div className="w-full aspect-video bg-black relative overflow-hidden">
+          <iframe title={video['File Name']} src={embed} className="w-full h-full" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
+        </div>
+      );
+    }
+
+    // fallback to native video element if src is a direct media URL
+    return (
+      <video controls className="w-full aspect-video object-cover" preload="metadata">
+        <source src={src} />
+        Your browser does not support the video tag.
+      </video>
+    );
+  }
   const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -614,89 +766,11 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {filteredVideos.map((video) => (
                 <div key={video['File Name']} className="relative group rounded-xl overflow-hidden bg-card border border-border/20">
-                  {(() => {
-                    // normalize to string
-                    const p = String(video.path || '');
-
-                    const getEmbedUrl = (urlStr: string): string | null => {
-                      try {
-                        const u = new URL(urlStr);
-                        const host = u.hostname.toLowerCase();
-
-                        // YouTube (youtu.be short and youtube.com)
-                        if (/youtube\.com|youtu\.be/.test(host)) {
-                          let id = '';
-                          if (host.includes('youtu.be')) {
-                            id = u.pathname.slice(1);
-                          } else {
-                            id = u.searchParams.get('v') || '';
-                            // also handle /embed/ or /watch/ paths
-                            if (!id) {
-                              const m = u.pathname.match(/\/embed\/(.+)/) || u.pathname.match(/\/v\/(.+)/);
-                              if (m) id = m[1] || '';
-                            }
-                          }
-                          return id ? `https://www.youtube.com/embed/${id}` : null;
-                        }
-
-                        // Vimeo
-                        if (host.includes('vimeo.com')) {
-                          const m = u.pathname.match(/\/(?:video\/)?(\d+)/);
-                          if (m) return `https://player.vimeo.com/video/${m[1]}`;
-                        }
-
-                        // Dailymotion
-                        if (host.includes('dailymotion.com') || host.includes('dai.ly')) {
-                          const m = u.pathname.match(/video\/(.+)$/) || u.pathname.match(/\/(.+)$/);
-                          if (m) return `https://www.dailymotion.com/embed/video/${m[1]}`;
-                        }
-
-                        // Google Drive — convert sharing link to preview embed when possible
-                        if (host.includes('drive.google.com') || host.includes('docs.google.com')) {
-                          // /file/d/FILE_ID/view or ?id=FILE_ID
-                          const idFromPath = (u.pathname.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || [])[1];
-                          const idFromQ = u.searchParams.get('id');
-                          const id = idFromPath || idFromQ || '';
-                          if (id) return `https://drive.google.com/file/d/${id}/preview`;
-                        }
-
-                        return null;
-                      } catch (e) {
-                        return null;
-                      }
-                    };
-
-                    const embed = getEmbedUrl(p);
-                    if (embed) {
-                      return (
-                        <div className="w-full aspect-video bg-black relative overflow-hidden">
-                          <iframe
-                            title={video['File Name']}
-                            src={embed}
-                            className="w-full h-full"
-                            frameBorder="0"
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                            allowFullScreen
-                          />
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <video
-                        controls
-                        className="w-full aspect-video object-cover"
-                        preload="metadata"
-                      >
-                        <source src={video.path} />
-                        Your browser does not support the video tag.
-                      </video>
-                    );
-                  })()}
+                  <VideoTile video={video} />
                   <div className="p-3 border-t border-border/20">
                     <div className="flex items-center gap-2">
                       <p className="font-semibold text-sm truncate">{video['File Name']}</p>
-                      {(video['File Size'] === 'External' || String(video.storedName || '').toLowerCase().endsWith('.link')) && (
+                      {(video['File Size'] === 'External' || String(video.storedName || '').toLowerCase().endsWith('.link') || (String(video.path || '').startsWith('http') && !String(video.path || '').includes('/uploads/')) || (String(video.path || '').includes('/uploads/') && !/\.[a-z0-9]{2,6}$/i.test(String(video['File Name'] || '')))) && (
                         <Badge variant="outline" className="text-[11px] px-2 py-0.5 bg-muted/10 border-muted-foreground/10">
                           <LinkIcon className="w-3 h-3 mr-1" />
                           External
@@ -740,7 +814,7 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <p className="font-semibold text-sm truncate">{audio['File Name']}</p>
-                          {(audio['File Size'] === 'External' || String(audio.storedName || '').toLowerCase().endsWith('.link')) && (
+                          {(audio['File Size'] === 'External' || String(audio.storedName || '').toLowerCase().endsWith('.link') || (String(audio.path || '').startsWith('http') && !String(audio.path || '').includes('/uploads/')) || (String(audio.path || '').includes('/uploads/') && !/\.[a-z0-9]{2,6}$/i.test(String(audio['File Name'] || '')))) && (
                             <Badge variant="outline" className="text-[11px] px-2 py-0.5 bg-muted/10 border-muted-foreground/10">
                               <LinkIcon className="w-3 h-3 mr-1" />
                               External
@@ -813,7 +887,7 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <h3 className="font-semibold text-sm">{doc['File Name']}</h3>
-                      {(doc['File Size'] === 'External' || String(doc.storedName || '').toLowerCase().endsWith('.link')) && (
+                      {(doc['File Size'] === 'External' || String(doc.storedName || '').toLowerCase().endsWith('.link') || (String(doc.path || '').startsWith('http') && !String(doc.path || '').includes('/uploads/')) || (String(doc.path || '').includes('/uploads/') && !/\.[a-z0-9]{2,6}$/i.test(String(doc['File Name'] || '')))) && (
                         <Badge variant="outline" className="text-[11px] px-2 py-0.5 bg-muted/10 border-muted-foreground/10">
                           <LinkIcon className="w-3 h-3 mr-1" />
                           External
