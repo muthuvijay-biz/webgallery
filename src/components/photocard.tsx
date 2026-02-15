@@ -25,98 +25,126 @@ export function PhotoCard({ photo, index, isAdmin }: PhotoCardProps) {
   const isMobile = useIsMobile();
   const [actionsOpen, setActionsOpen] = useState(false);
 
-  // reset loaded when source changes
-  useEffect(() => setLoaded(false), [photo.path]);
+  // reset `loaded` when the source changes. also handle the cached-image race
+  // where the browser may have already completed the image before React's
+  // onLoad/onLoadingComplete handlers are attached — in that case detect the
+  // existing <img> element and mark loaded=true so the skeleton doesn't stick.
+  useEffect(() => {
+    setLoaded(false);
+
+    const checkCached = () => {
+      try {
+        const imgs = Array.from(document.querySelectorAll('img')) as HTMLImageElement[];
+        const match = imgs.find(i => i.src && (i.src.endsWith(photo.path) || i.src.includes(photo.path)));
+        if (match && match.complete && (match.naturalWidth || 0) > 0) {
+          setDims({ w: match.naturalWidth, h: match.naturalHeight });
+          setLoaded(true);
+          return true;
+        }
+      } catch (e) {
+        // ignore DOM access errors
+      }
+      return false;
+    };
+
+    // check immediately and again shortly after to cover timing races
+    if (!checkCached()) {
+      const t = window.setTimeout(checkCached, 120);
+      return () => window.clearTimeout(t);
+    }
+    return () => {};
+  }, [photo.path]);
 
   return (
     <Popover open={actionsOpen} onOpenChange={setActionsOpen}>
-      <PopoverTrigger asChild>
-        <Card 
-          className="overflow-hidden group border border-border/20 rounded-xl transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl cursor-pointer bg-card hover:border-primary/40"
-          onContextMenu={(e) => {
-            if (!isMobile) return;
-            e.preventDefault();
-            setActionsOpen(true);
-          }}
-        >
-          <CardContent className="p-0 relative aspect-square bg-muted/30">
-            {/* skeleton/shimmer until the image loads */}
-            {!loaded && (
-              <div className="absolute inset-0 flex items-center justify-center z-10">
-                <Skeleton className="w-full h-full rounded-none shimmer" />
-              </div>
-            )}
+      <Card 
+        className="overflow-hidden group border border-border/20 rounded-xl transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl cursor-pointer bg-card hover:border-primary/40"
+        onContextMenu={(e) => {
+          if (!isMobile) return;
+          e.preventDefault();
+          setActionsOpen(true);
+        }}
+      >
+        <CardContent className="p-0 relative aspect-square bg-muted/30">
+          {/* skeleton/shimmer until the image loads */}
+          {!loaded && (
+            <div className="absolute inset-0 flex items-center justify-center z-10">
+              <Skeleton className="w-full h-full rounded-none shimmer" />
+            </div>
+          )}
 
-            {/* Background preview image */}
-            {String(photo.path).startsWith('/') ? (
-              <Image
-                src={photo.path}
-                alt={photo['File Name']}
-                fill
-                onLoadingComplete={(img) => {
-                  setDims({ w: img.naturalWidth, h: img.naturalHeight });
-                  setLoaded(true);
-                }}
-                className={`object-cover group-hover:scale-105 transition-transform duration-500 ${loaded ? 'opacity-100' : 'opacity-0'}`}
-                sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 20vw"
-                loading="lazy"
-                quality={85}
-              />
-            ) : (
-              // External / signed URLs (Supabase signed URLs) — render native <img> to avoid Next.js image proxy 400 errors
-              <img
-                src={photo.path}
-                alt={photo['File Name']}
-                onLoad={(e) => {
-                  const t = e.currentTarget as HTMLImageElement;
-                  setDims({ w: t.naturalWidth, h: t.naturalHeight });
-                  setLoaded(true);
-                }}
-                className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ${loaded ? 'opacity-100' : 'opacity-0'}`}
-                loading="lazy"
-              />
-            )}
+          {/* Background preview image */}
+          {String(photo.path).startsWith('/') ? (
+            <Image
+              src={photo.path}
+              alt={photo['File Name']}
+              fill
+              onLoadingComplete={(img) => {
+                setDims({ w: img.naturalWidth, h: img.naturalHeight });
+                setLoaded(true);
+              }}
+              className={`object-cover group-hover:scale-105 transition-transform duration-500 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+              sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 20vw"
+              loading="lazy"
+              quality={85}
+            />
+          ) : (
+            // External / signed URLs (Supabase signed URLs) — render native <img> to avoid Next.js image proxy 400 errors
+            <img
+              src={photo.path}
+              alt={photo['File Name']}
+              onLoad={(e) => {
+                const t = e.currentTarget as HTMLImageElement;
+                setDims({ w: t.naturalWidth, h: t.naturalHeight });
+                setLoaded(true);
+              }}
+              className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+              loading="lazy"
+            />
+          )}
 
-            {/* PhotoSwipe clickable overlay */}
-            <a
-              href={photo.path}
-              data-caption={`${photo['File Name']}|||${photo['Description'] || ''}`}
-              className="absolute inset-0 z-10"
-              aria-label={`View ${photo['File Name']}`}
-            >
-            </a>
+          {/* PhotoSwipe clickable overlay */}
+          <a
+            href={photo.path}
+            data-caption={`${photo['File Name']}|||${photo['Description'] || ''}`}
+            className="absolute inset-0 z-10"
+            aria-label={`View ${photo['File Name']}`}
+          >
+          </a>
 
-            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
-            
-            <div 
-              className="absolute top-2 right-2 flex items-center gap-1 opacity-0 md:group-hover:opacity-100 transition-opacity duration-300 pointer-events-none md:pointer-events-auto z-20" 
-              onClick={(e) => e.stopPropagation()}
-            >
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
+          
+          <div 
+            className="absolute top-2 right-2 flex items-center gap-1 opacity-0 md:group-hover:opacity-100 transition-opacity duration-300 pointer-events-none md:pointer-events-auto z-20" 
+            onClick={(e) => e.stopPropagation()}
+          >
+            <PopoverTrigger asChild>
               <FileDetailsModal file={photo}>
                 <Button variant="secondary" size="icon" className="h-7 w-7 sm:h-8 sm:w-8 rounded-full shadow-lg backdrop-blur-sm bg-background/90">
                   <Info className="h-3 w-3 sm:h-4 sm:w-4" />
                 </Button>
               </FileDetailsModal>
-              {isAdmin && <DeleteButton fileName={photo.storedName ?? photo['File Name']} type="images" />}
-            </div>
+            </PopoverTrigger>
 
-            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/70 to-transparent p-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-10">
-              <div className="flex items-center gap-2">
-                <p className="text-white text-xs sm:text-sm font-semibold truncate">{photo['File Name']}</p>
-                {(photo['File Size'] === 'External' || String(photo.storedName || '').toLowerCase().endsWith('.link') || (String(photo.path || '').startsWith('http') && !String(photo.path || '').includes('/uploads/')) || (String(photo.path || '').includes('/uploads/') && !/\.[a-z0-9]{2,6}$/i.test(String(photo['File Name'] || '')))) && (
-                  <Badge variant="outline" className="text-[11px] px-2 py-0.5 bg-white/8 border-muted-foreground/10">
-                    <LinkIcon className="w-3 h-3 mr-1" />
-                    External
-                  </Badge>
-                )}
-              </div>
-              {photo['Description'] && (
-                <p className="text-white/80 text-xs truncate mt-1">{photo['Description']}</p>
+            {isAdmin && <DeleteButton fileName={photo.storedName ?? photo['File Name']} type="images" />}
+          </div>
+
+          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/70 to-transparent p-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-10">
+            <div className="flex items-center gap-2">
+              <p className="text-white text-xs sm:text-sm font-semibold truncate">{photo['File Name']}</p>
+              {(photo['File Size'] === 'External' || String(photo.storedName || '').toLowerCase().endsWith('.link') || (String(photo.path || '').startsWith('http') && !String(photo.path || '').includes('/uploads/')) || (String(photo.path || '').includes('/uploads/') && !/\.[a-z0-9]{2,6}$/i.test(String(photo['File Name'] || '')))) && (
+                <Badge variant="outline" className="text-[11px] px-2 py-0.5 bg-white/8 border-muted-foreground/10">
+                  <LinkIcon className="w-3 h-3 mr-1" />
+                  External
+                </Badge>
               )}
             </div>
-          </CardContent>
-        </Card>
-      </PopoverTrigger>
+            {photo['Description'] && (
+              <p className="text-white/80 text-xs truncate mt-1">{photo['Description']}</p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       <PopoverContent className="w-64 p-2" side="top" align="end">
         <div className="flex flex-col gap-1">
