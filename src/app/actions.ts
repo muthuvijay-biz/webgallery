@@ -32,12 +32,117 @@ export async function login(prevState: any, formData: FormData) {
 export async function uploadFile(prevState: any, formData: FormData) {
   const files = formData.getAll('file') as File[];
   const file = files && files.length > 0 ? (files[0] as File) : (formData.get('file') as File);
-  const type = formData.get('type') as 'images' | 'videos' | 'documents';
+  const type = formData.get('type') as 'images' | 'videos' | 'documents' | 'audios';
   const description = formData.get('description') as string | null;
+  const url = formData.get('url') as string | null;
+  const clientFileName = formData.get('fileName') as string | null;
+  const clientMime = formData.get('mime') as string | null;
 
   const MAX_BYTES = 50 * 1024 * 1024; // 50 MB
 
-  if (!file || !type || file.size === 0) {
+  // Support either a direct file upload OR a remote URL to fetch
+  if (!type) {
+    return { success: false, message: 'Missing file type.' };
+  }
+
+  // If a URL was provided, fetch it on the server and treat it as the file
+  if (url) {
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) {
+        return { success: false, message: `Failed to fetch URL: ${resp.statusText}` };
+      }
+
+      const contentLength = resp.headers.get('content-length');
+      if (contentLength && parseInt(contentLength, 10) > MAX_BYTES) {
+        return { success: false, message: `Remote file too large. Maximum allowed size is ${MAX_BYTES / 1024 / 1024} MB.` };
+      }
+
+      const arrayBuffer = await resp.arrayBuffer();
+      if (arrayBuffer.byteLength > MAX_BYTES) {
+        return { success: false, message: `Remote file too large. Maximum allowed size is ${MAX_BYTES / 1024 / 1024} MB.` };
+      }
+
+      const buffer = Buffer.from(arrayBuffer);
+      const contentType = resp.headers.get('content-type') || clientMime || 'application/octet-stream';
+      const inferredName = clientFileName || (() => {
+        try {
+          return decodeURIComponent(new URL(url).pathname.split('/').filter(Boolean).pop() || `file-${Date.now()}`);
+        } catch (e) {
+          return `file-${Date.now()}`;
+        }
+      })();
+
+      const uploadDir = join(process.cwd(), 'public', 'uploads', type);
+      const sanitizedFileName = inferredName.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+      const path = join(uploadDir, sanitizedFileName);
+      const descriptionPath = `${path}.json`;
+
+      try {
+        if (process.env.USE_SUPABASE === 'true') {
+          const bucket = process.env.SUPABASE_BUCKET || '';
+          if (!bucket) {
+            return { success: false, message: 'SUPABASE_BUCKET not configured.' };
+          }
+          const dest = `${type}/${sanitizedFileName}`;
+
+          const { error: uploadError } = await supabaseAdmin
+            .storage
+            .from(bucket)
+            .upload(dest, buffer, { contentType, upsert: true });
+
+          if (uploadError) throw uploadError;
+
+          if (description) {
+            await supabaseAdmin
+              .storage
+              .from(bucket)
+              .upload(`${dest}.json`, Buffer.from(JSON.stringify({ description })), { contentType: 'application/json', upsert: true })
+              .catch(() => {});
+          }
+
+          const expiry = parseInt(process.env.SUPABASE_SIGNED_URL_EXPIRY || '3600', 10);
+          const { data: signedData, error: signedErr } = await supabaseAdmin
+            .storage
+            .from(bucket)
+            .createSignedUrl(dest, expiry);
+
+          const publicPath = `${process.env.SUPABASE_URL}/storage/v1/object/public/${bucket}/${dest}`;
+          const finalPath = signedErr ? publicPath : signedData?.signedUrl ?? publicPath;
+
+          revalidatePath('/');
+          revalidatePath('/uploads');
+          return {
+            success: true,
+            message: 'File uploaded successfully!',
+            path: finalPath,
+          };
+        }
+
+        await mkdir(uploadDir, { recursive: true });
+        await writeFile(path, buffer);
+        if (description) {
+          await writeFile(descriptionPath, JSON.stringify({ description }));
+        }
+        revalidatePath('/');
+        revalidatePath('/uploads');
+        return { success: true, message: 'File uploaded successfully!' };
+      } catch (err: any) {
+        console.error('uploadFile (url) error:', err);
+        const message = err?.code === 'EACCES' || err?.code === 'EPERM'
+          ? 'Write permission denied (filesystem likely read-only in production).'
+          : err?.message || 'Failed to upload file.';
+        return { success: false, message };
+      }
+
+    } catch (err: any) {
+      console.error('uploadFile fetch error:', err);
+      return { success: false, message: err?.message || 'Failed to fetch remote URL.' };
+    }
+  }
+
+  // --- existing file upload flow ---
+  if (!file || file.size === 0) {
     return { success: false, message: 'Please select a file to upload.' };
   }
 

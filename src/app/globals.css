@@ -4,73 +4,91 @@
 
 @layer base {
   :root {
-    --background: 220 17% 95%; /* light gray */
-    --foreground: 231 48% 18%; /* dark indigo text */
+    /* Brand tokens (mobile-first, high-contrast) */
+    --background: 210 20% 98%; /* very light */
+    --foreground: 230 12% 8%; /* near-black text */
     --card: 0 0% 100%;
-    --card-foreground: 231 48% 18%;
+    --card-foreground: 230 12% 8%;
     --popover: 0 0% 100%;
-    --popover-foreground: 231 48% 18%;
-    --primary: 231 48% 48%; /* deep indigo */
-    --primary-foreground: 0 0% 98%;
+    --popover-foreground: 230 12% 8%;
+
+    /* Primary: purple brand (header & CTAs) */
+    --primary: 252 62% 58%;
+    --primary-foreground: 0 0% 100%;
+
     --secondary: 220 17% 90%;
-    --secondary-foreground: 231 48% 18%;
-    --muted: 220 17% 90%;
-    --muted-foreground: 231 20% 45%;
-    --accent: 261 42% 63%; /* violet */
-    --accent-foreground: 0 0% 98%;
+    --secondary-foreground: 230 12% 8%;
+
+    --muted: 220 17% 96%;
+    --muted-foreground: 210 10% 55%;
+
+    /* Accent: golden sparkles */
+    --accent: 44 95% 60%;
+    --accent-foreground: 230 14% 8%;
+
+    /* Highlight / micro-interactions */
+    --highlight: 44 95% 60%; /* golden */
+
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
-    --border: 231 20% 85%;
+
+    --border: 220 12% 92%;
     --input: 0 0% 100%;
-    --ring: 231 48% 48%; /* primary color for rings */
+
+    /* Use teal for focus/ring */
+    --ring: 180 78% 42%;
+
     --chart-1: 12 76% 61%;
     --chart-2: 173 58% 39%;
     --chart-3: 197 37% 24%;
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
-    --radius: 0.5rem;
+
+    --radius: 0.75rem;
+
     --sidebar-background: 0 0% 98%;
     --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary: 180 85% 10%;
     --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-accent: 262 83% 58%;
+    --sidebar-accent-foreground: 0 0% 98%;
     --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --sidebar-ring: 180 78% 42%;
   }
+
   .dark {
-    --background: 231 28% 10%;
-    --foreground: 0 0% 98%;
-    --card: 231 28% 12%;
-    --card-foreground: 0 0% 98%;
-    --popover: 231 28% 10%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 231 48% 58%;
-    --primary-foreground: 231 48% 10%;
+    --background: 230 25% 7%;
+    --foreground: 0 0% 100%;
+    --card: 230 25% 9%;
+    --card-foreground: 0 0% 100%;
+    --popover: 230 25% 7%;
+    --popover-foreground: 0 0% 100%;
+    --primary: 180 85% 48%;
+    --primary-foreground: 230 25% 8%;
     --secondary: 231 20% 20%;
     --secondary-foreground: 0 0% 98%;
     --muted: 231 20% 20%;
     --muted-foreground: 231 10% 60%;
-    --accent: 261 42% 73%;
-    --accent-foreground: 261 42% 10%;
+    --accent: 262 83% 65%;
+    --accent-foreground: 0 0% 98%;
     --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 231 20% 25%;
-    --input: 231 20% 25%;
-    --ring: 231 48% 58%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 230 20% 18%;
+    --input: 230 20% 18%;
+    --ring: 180 85% 42%;
     --chart-1: 220 70% 50%;
     --chart-2: 160 60% 45%;
     --chart-3: 30 80% 55%;
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-background: 230 20% 8%;
+    --sidebar-foreground: 230 20% 100%;
+    --sidebar-primary: 180 85% 48%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --sidebar-accent: 262 83% 65%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 230 20% 12%;
+    --sidebar-ring: 180 85% 42%;
   }
 }
 
@@ -79,6 +97,90 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
+
+  /* Brand helpers */
+  .brand-logo {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .app-shell {
+    background: linear-gradient(180deg, rgba(255,255,255,0.6), rgba(255,255,255,0.3));
+    backdrop-filter: blur(6px);
+    border-radius: var(--radius);
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+
+  /* Shimmer for improved perceived performance */
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+  .shimmer {
+    background: linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.03) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s linear infinite;
+  }
+
+  /* hero + blob animation */
+  @keyframes blob {
+    0% { transform: translateY(0) scale(1); filter: blur(0px); }
+    50% { transform: translateY(-6px) scale(1.03); filter: blur(2px); }
+    100% { transform: translateY(0) scale(1); filter: blur(0px); }
+  }
+  .animate-blob { animation: blob 4s ease-in-out infinite; transform-origin: center; }
+
+  .hero-card { border-radius: 1.25rem; }
+
+  /* stronger tab active look */
+  .tabs-strong .radix-state-active {
+    box-shadow: 0 10px 30px rgba(2,6,23,0.12);
+    transform: translateY(-2px);
+  }
+
+  .brand-accent { color: hsl(var(--accent)); }
+
+  /* Header gradient utility */
+  .header-gradient { background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); }
+
+  /* Particle / sparkle elements used in hero */
+  .particle { position: absolute; border-radius: 9999px; box-shadow: 0 6px 18px rgba(0,0,0,0.08); background: radial-gradient(circle at 30% 30%, rgba(246,200,95,0.98), rgba(246,200,95,0.6)); opacity: .95; transform: translate3d(0,0,0); }
+  @keyframes particle-move { 0% { transform: translateY(0) scale(1); opacity: .95 } 50% { transform: translateY(-8px) scale(1.05); opacity: .8 } 100% { transform: translateY(0) scale(1); opacity: .95 } }
+  .particle { animation: particle-move 5s ease-in-out infinite; }
+
+  /* sparkle rotation for tiny accents */
+  .sparkle { animation: spin 6s linear infinite; transform-origin: center; }
+  @keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }
+
+  /* floating shield */
+  @keyframes floaty { 0% { transform: translateY(0) } 50% { transform: translateY(-8px) } 100% { transform: translateY(0) } }
+  .floating-shield { animation: floaty 4s ease-in-out infinite; }
+
+  /* button shine (pseudo-element driven) */
+  .btn-gradient-shine { position: relative; overflow: hidden; }
+  .btn-gradient-shine::after { content: ''; position: absolute; top: -40%; left: -40%; width: 200%; height: 180%; background: linear-gradient(120deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.28) 50%, rgba(255,255,255,0.06) 100%); transform: translateX(-100%) rotate(10deg); transition: transform .75s cubic-bezier(.2,.9,.2,1); pointer-events: none; }
+  .btn-gradient-shine:hover::after { transform: translateX(30%) rotate(10deg); }
+
+  @keyframes pop { 0% { opacity: 0; transform: translateY(8px); } 100% { opacity: 1; transform: translateY(0); } }
+  .animate-pop { animation: pop 360ms cubic-bezier(.2,.9,.2,1) both; }
+
+  /* Smooth entrance animations */
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes slide-in-from-top { from { transform: translateY(-100%); } to { transform: translateY(0); } }
+  @keyframes slide-in-from-bottom { from { transform: translateY(100%); } to { transform: translateY(0); } }
+  @keyframes zoom-in-95 { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  
+  .animate-in { animation-fill-mode: both; }
+  .fade-in { animation-name: fade-in; }
+  .slide-in-from-top { animation-name: slide-in-from-top; }
+  .slide-in-from-bottom { animation-name: slide-in-from-bottom; }
+  .zoom-in-95 { animation-name: zoom-in-95; }
+  .duration-200 { animation-duration: 200ms; }
+  .duration-300 { animation-duration: 300ms; }
 }
+

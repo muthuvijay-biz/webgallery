@@ -1,185 +1,121 @@
 'use client';
 
 import { useUpload } from '@/context/upload-provider';
+import { useEffect, useState } from 'react';
 import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
-import {
-  CheckCircle2,
-  CircleDot,
-  UploadCloud,
-  XCircle,
-  ChevronDown,
-  X,
-} from 'lucide-react';
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import { CheckCircle2, XCircle } from 'lucide-react';
 import { Button } from './ui/button';
-import { useState, useMemo } from 'react';
-import { cn } from '@/lib/utils';
-
-const StatusIcon = ({
-  status,
-}: {
-  status: 'pending' | 'uploading' | 'success' | 'error';
-}) => {
-  switch (status) {
-    case 'pending':
-      return <CircleDot className="h-5 w-5 text-muted-foreground" />;
-    case 'uploading':
-      return <UploadCloud className="h-5 w-5 text-primary animate-pulse" />;
-    case 'success':
-      return <CheckCircle2 className="h-5 w-5 text-green-500" />;
-    case 'error':
-      return <XCircle className="h-5 w-5 text-destructive" />;
-  }
-};
 
 export function UploadStatusPanel() {
-  const { uploadingFiles, clearCompleted, clearAll } = useUpload();
-  const [isMinimized, setIsMinimized] = useState(false);
+  const { uploadingFiles, clearAll } = useUpload();
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [showErrorModal, setShowErrorModal] = useState(false);
+  const [successCount, setSuccessCount] = useState(0);
+  const [errorFiles, setErrorFiles] = useState<string[]>([]);
 
-  const activeUploads = useMemo(
-    () =>
-      uploadingFiles.filter(
-        (f) => f.status === 'uploading' || f.status === 'pending'
-      ),
-    [uploadingFiles]
-  );
+  useEffect(() => {
+    if (uploadingFiles.length === 0) return;
 
-  const completedUploads = useMemo(
-    () =>
-      uploadingFiles.filter(
-        (f) => f.status === 'success' || f.status === 'error'
-      ),
-    [uploadingFiles]
-  );
-
-  if (uploadingFiles.length === 0) {
-    return null;
-  }
-
-  if (isMinimized) {
-    const isUploading = activeUploads.length > 0;
-    const allSuccessful =
-      completedUploads.length > 0 &&
-      completedUploads.length === uploadingFiles.length &&
-      completedUploads.every((f) => f.status === 'success');
-
-    let statusColor = 'bg-primary hover:bg-primary/90 text-primary-foreground';
-    let statusIcon = <UploadCloud className="h-6 w-6 animate-pulse" />;
-    let count = activeUploads.length;
-
-    if (!isUploading) {
-      if (allSuccessful) {
-        statusColor = 'bg-green-500 hover:bg-green-500/90 text-white';
-        statusIcon = <CheckCircle2 className="h-6 w-6" />;
-      } else {
-        statusColor =
-          'bg-destructive hover:bg-destructive/90 text-destructive-foreground';
-        statusIcon = <XCircle className="h-6 w-6" />;
-      }
-      count = uploadingFiles.length;
-    }
-
-    return (
-      <div className="fixed bottom-4 right-4 z-50">
-        <Button
-          className={cn(
-            'pl-4 pr-5 shadow-2xl rounded-full h-14 flex items-center gap-2',
-            statusColor
-          )}
-          onClick={() => setIsMinimized(false)}
-        >
-          {statusIcon}
-          <span className="font-bold text-lg">{count}</span>
-          <span className="sr-only">Show upload progress</span>
-        </Button>
-      </div>
+    const allCompleted = uploadingFiles.every(
+      (f) => f.status === 'success' || f.status === 'error'
     );
-  }
+
+    if (allCompleted) {
+      const successFiles = uploadingFiles.filter((f) => f.status === 'success');
+      const failedFiles = uploadingFiles.filter((f) => f.status === 'error');
+
+      if (successFiles.length > 0) {
+        setSuccessCount(successFiles.length);
+        setShowSuccessModal(true);
+      }
+
+      if (failedFiles.length > 0) {
+        setErrorFiles(failedFiles.map((f) => f.file.name));
+        setShowErrorModal(true);
+      }
+    }
+  }, [uploadingFiles]);
+
+  const handleCloseSuccess = () => {
+    setShowSuccessModal(false);
+    clearAll();
+  };
+
+  const handleCloseError = () => {
+    setShowErrorModal(false);
+    clearAll();
+  };
+
+  const isUploading = uploadingFiles.some(
+    (f) => f.status === 'uploading' || f.status === 'pending'
+  );
 
   return (
-    <Card className="fixed bottom-4 right-4 w-11/12 max-w-md z-50 shadow-2xl animate-in slide-in-from-bottom-5">
-      <CardHeader className="flex flex-row items-center p-3">
-        <div className="flex items-center gap-2 flex-1 overflow-hidden">
-          <CardTitle className="text-base font-semibold truncate">
-            Uploading Files
-          </CardTitle>
-          {activeUploads.length > 0 && (
-            <span className="text-xs text-muted-foreground flex-shrink-0">
-              ({activeUploads.length} in progress)
+    <>
+      {/* Upload in progress indicator - bottom right */}
+      {isUploading && (
+        <div className="fixed bottom-20 right-4 z-50">
+          <div className="bg-primary text-primary-foreground px-4 py-2 rounded-full shadow-lg flex items-center gap-2">
+            <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            <span className="text-sm font-medium">
+              Uploading {uploadingFiles.filter((f) => f.status === 'uploading').length} file(s)...
             </span>
-          )}
+          </div>
         </div>
-        <div className="flex items-center gap-0.5">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => setIsMinimized(true)}
-          >
-            <ChevronDown className="h-5 w-5" />
-            <span className="sr-only">Minimize</span>
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={clearAll}
-          >
-            <X className="h-5 w-5" />
-            <span className="sr-only">Close</span>
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent className="p-3 pt-0">
-        <div className="flex flex-col gap-4 max-h-64 overflow-y-auto pr-2">
-          {uploadingFiles.map((item) => (
-            <div key={item.id} className="grid gap-2">
-              <div className="flex items-center gap-3">
-                <StatusIcon status={item.status} />
-                <div className="flex-1 overflow-hidden">
-                  <p className="text-sm font-medium truncate">
-                    {item.file.name}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {item.status === 'error'
-                      ? item.message
-                      : `${(item.file.size / 1024 / 1024).toFixed(2)} MB`}
-                  </p>
-                </div>
-              </div>
-              {item.status === 'uploading' && (
-                <Progress value={item.progress} className="h-2" />
-              )}
-              {item.status === 'success' && (
-                <Progress value={100} className="h-2 [&>div]:bg-green-500" />
-              )}
-              {item.status === 'error' && (
-                <Progress
-                  value={100}
-                  className="h-2 [&>div]:bg-destructive"
-                />
-              )}
+      )}
+
+      {/* Success Modal */}
+      <Dialog open={showSuccessModal} onOpenChange={handleCloseSuccess}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <div className="flex justify-center mb-4">
+              <CheckCircle2 className="h-16 w-16 text-green-500" />
             </div>
-          ))}
-        </div>
-        {completedUploads.length > 0 && activeUploads.length === 0 && (
-          <div className="mt-3">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={clearCompleted}
-              className="w-full"
-            >
-              Clear Completed
+            <DialogTitle className="text-center text-xl">Upload Successful!</DialogTitle>
+            <DialogDescription className="text-center">
+              {successCount} file{successCount > 1 ? 's' : ''} uploaded successfully.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-center mt-4">
+            <Button onClick={handleCloseSuccess} className="w-full">
+              Done
             </Button>
           </div>
-        )}
-      </CardContent>
-    </Card>
+        </DialogContent>
+      </Dialog>
+
+      {/* Error Modal */}
+      <Dialog open={showErrorModal} onOpenChange={handleCloseError}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <div className="flex justify-center mb-4">
+              <XCircle className="h-16 w-16 text-destructive" />
+            </div>
+            <DialogTitle className="text-center text-xl">Upload Failed</DialogTitle>
+            <DialogDescription className="text-center">
+              The following file{errorFiles.length > 1 ? 's' : ''} failed to upload:
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-48 overflow-y-auto">
+            <ul className="list-disc list-inside text-sm space-y-1">
+              {errorFiles.map((fileName, idx) => (
+                <li key={idx} className="text-destructive">{fileName}</li>
+              ))}
+            </ul>
+          </div>
+          <div className="flex justify-center mt-4">
+            <Button onClick={handleCloseError} variant="destructive" className="w-full">
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

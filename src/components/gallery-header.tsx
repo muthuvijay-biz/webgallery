@@ -1,6 +1,6 @@
 'use client';
 
-import { LogOut, Search, Image as ImageIcon } from 'lucide-react';
+import { LogOut, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { SmartUploadDialog } from './smartuploaddialog';
@@ -14,49 +14,51 @@ interface GalleryHeaderProps {
 
 export function GalleryHeader({ isAdmin, searchQuery, onSearchChange, onLogout }: GalleryHeaderProps) {
   return (
-    <header className="sticky top-0 z-40 w-full backdrop-blur-xl bg-background/80 border-b border-border/40 shadow-sm">
+    <header className="fixed top-0 left-0 right-0 z-40 bg-background/95 backdrop-blur-md border-b border-border/30">
+      {/* thin decorative purple band */}
+      <div className="header-gradient h-1.5 w-full" />
+
       <div className="container mx-auto px-3 sm:px-4 py-3 sm:py-4">
-        <div className="flex items-center justify-between gap-3 sm:gap-4">
-          <div className="flex items-center gap-2 sm:gap-3">
-            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center shadow-lg">
-              <ImageIcon className="h-4 w-4 sm:h-5 sm:w-5 text-primary-foreground" />
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="brand-logo w-9 h-9 sm:w-10 sm:h-10 rounded-full shadow-sm flex items-center justify-center bg-gradient-to-br from-primary to-accent text-white font-bold text-lg sm:text-xl">
+              G
             </div>
-            <div>
-              <h1 className="text-lg sm:text-xl md:text-2xl font-bold bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
-                Gallery
-              </h1>
-              <p className="text-xs text-muted-foreground hidden sm:block">Your media collection</p>
+
+            <div className="hidden sm:block">
+              <h1 className="text-base sm:text-lg font-semibold">WebGallery</h1>
+              <p className="text-xs text-muted-foreground">Secure • Fast • Free</p>
             </div>
           </div>
-          
+
           <div className="flex items-center gap-2">
+            <div className="hidden sm:block">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="search"
+                  placeholder="Search files, tags, descriptions..."
+                  value={searchQuery}
+                  onChange={(e) => onSearchChange(e.target.value)}
+                  className="pl-10 pr-3 h-9 sm:h-10 rounded-xl border-2 bg-muted/10 text-sm sm:text-base"
+                />
+              </div>
+            </div>
+
+            <div className="sm:hidden">
+              <Button variant="ghost" size="icon" aria-label="Search">
+                <Search className="h-4 w-4 text-muted-foreground" />
+              </Button>
+            </div>
+
             {isAdmin && (
               <>
                 <SmartUploadDialog />
-                <Button 
-                  variant="ghost" 
-                  size="icon"
-                  onClick={onLogout}
-                  className="rounded-full h-9 w-9 sm:h-10 sm:w-10"
-                >
-                  <LogOut className="h-4 w-4 sm:h-5 sm:w-5" />
+                <Button variant="ghost" size="icon" onClick={onLogout} className="rounded-full h-9 w-9 sm:h-10 sm:w-10">
+                  <LogOut className="h-4 w-4" />
                 </Button>
               </>
             )}
-          </div>
-        </div>
-
-        {/* Search Bar */}
-        <div className="mt-3 sm:mt-4">
-          <div className="relative">
-            <Search className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 text-muted-foreground" />
-            <Input
-              type="search"
-              placeholder="Search files..."
-              value={searchQuery}
-              onChange={(e) => onSearchChange(e.target.value)}
-              className="pl-10 sm:pl-12 pr-4 h-10 sm:h-12 rounded-xl sm:rounded-2xl border-2 bg-muted/30 backdrop-blur-sm text-sm sm:text-base"
-            />
           </div>
         </div>
       </div>

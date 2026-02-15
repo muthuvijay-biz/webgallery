@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { Upload, X, Check, FileText, Image as ImageIcon, Video as VideoIcon, Music } from 'lucide-react';
+import { useState, useCallback, useEffect } from 'react';
+import { Upload, X, Check, FileText, Image as ImageIcon, Video as VideoIcon, Music, CloudUpload, CheckCircle2, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { useToast } from '@/hooks/use-toast';
+import { Progress } from '@/components/ui/progress';
 import { useUpload } from '@/context/upload-provider';
 import {
   Dialog,
@@ -18,27 +18,33 @@ import {
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 
-type FileCategory = 'images' | 'videos' | 'audio' | 'documents';
+type FileCategory = 'images' | 'videos' | 'audios' | 'documents';
+
+type RemoteInput = { url: string; name?: string; mime?: string; size?: number };
 
 interface CategorizedFile {
-  file: File;
+  file: File | RemoteInput;
   category: FileCategory;
   preview?: string;
 }
 
 export function SmartUploadDialog() {
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<'file' | 'link'>('file');
   const [files, setFiles] = useState<CategorizedFile[]>([]);
+  const [linkUrl, setLinkUrl] = useState('');
   const [description, setDescription] = useState('');
+  const [isDragging, setIsDragging] = useState(false);
+  const [showErrorModal, setShowErrorModal] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
   const { uploadFile } = useUpload();
-  const { toast } = useToast();
 
   const detectFileCategory = (file: File): FileCategory => {
     const type = file.type.toLowerCase();
     
     if (type.startsWith('image/')) return 'images';
     if (type.startsWith('video/')) return 'videos';
-    if (type.startsWith('audio/')) return 'audio';
+    if (type.startsWith('audio/')) return 'audios';
     
     const documentTypes = [
       'application/pdf',
@@ -59,230 +65,406 @@ export function SmartUploadDialog() {
     return 'documents';
   };
 
-  const createPreview = async (file: File, category: FileCategory): Promise<string | undefined> => {
+  const createPreview = async (file: File | RemoteInput, category: FileCategory): Promise<string | undefined> => {
     if (category === 'images') {
+      if ('url' in file && file.url) return file.url;
       return new Promise((resolve) => {
         const reader = new FileReader();
         reader.onloadend = () => resolve(reader.result as string);
-        reader.readAsDataURL(file);
+        reader.readAsDataURL(file as File);
       });
     }
     return undefined;
   };
 
-  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = Array.from(e.target.files || []);
-    if (selectedFiles.length === 0) return;
+  const detectCategoryFromUrl = (url: string): FileCategory => {
+    const extMatch = url.split('?')[0].match(/\.([a-z0-9]+)$/i);
+    const ext = extMatch ? extMatch[1].toLowerCase() : '';
 
-    // Only allow one file at a time (enforce UI-level restriction)
-    const file = selectedFiles[0];
+    if (ext.match(/^(jpg|jpeg|png|gif|webp|avif|svg|heic|heif)$/i)) return 'images';
+    if (ext.match(/^(mp4|mov|webm|mkv|avi|3gp|ogg|flv|ts)$/i)) return 'videos';
+    if (ext.match(/^(mp3|wav|m4a|flac|aac|ogg)$/i)) return 'audios';
+    if (ext.match(/^(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|rtf)$/i)) return 'documents';
+    // fallback to documents
+    return 'documents';
+  };
 
-    const MAX_BYTES = 50 * 1024 * 1024; // 50 MB
+  const extractFileNameFromUrl = (url: string) => {
+    try {
+      const u = new URL(url);
+      const last = u.pathname.split('/').filter(Boolean).pop() ?? '';
+      return decodeURIComponent(last) || `file-${Date.now()}`;
+    } catch (err) {
+      return `file-${Date.now()}`;
+    }
+  };
+
+  const processFile = async (file: File) => {
+    const MAX_BYTES = 50 * 1024 * 1024;
     if (file.size > MAX_BYTES) {
-      useToast().toast?.({
-        title: 'File too large',
-        description: `Maximum file size is ${MAX_BYTES / 1024 / 1024} MB.`,
-        variant: 'destructive',
-      });
+      setErrorMessage(`File too large. Maximum file size is 50 MB.`);
+      setShowErrorModal(true);
       return;
     }
 
     const category = detectFileCategory(file);
     const preview = await createPreview(file, category);
-
-    // Replace any existing selection with the new single file
     setFiles([{ file, category, preview }]);
-  }, []);
-
-  const removeFile = (index: number) => {
-    setFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleUpload = () => {
+  const processLink = async (url: string) => {
+    try {
+      const parsed = new URL(url);
+      const name = extractFileNameFromUrl(url);
+      const category = detectCategoryFromUrl(url);
+      const preview = category === 'images' ? url : undefined;
+      const remote: RemoteInput = { url, name };
+      setFiles([{ file: remote, category, preview }]);
+      setLinkUrl('');
+      setMode('file'); // switch back to file mode to reuse the same preview UI
+    } catch (err) {
+      setErrorMessage('Please enter a valid URL.');
+      setShowErrorModal(true);
+    }
+  };
+
+  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (mode !== 'file') return;
+    const selectedFiles = Array.from(e.target.files || []);
+    if (selectedFiles.length === 0) return;
+    await processFile(selectedFiles[0]);
+  }, [mode]);
+
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    if (mode !== 'file') return;
+    e.preventDefault();
+    setIsDragging(false);
+    const droppedFiles = Array.from(e.dataTransfer.files);
+    if (droppedFiles.length > 0) {
+      await processFile(droppedFiles[0]);
+    }
+  }, [mode]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  }, []);
+
+  const removeFile = () => {
+    setFiles([]);
+  };
+
+  const handleUpload = async () => {
     if (files.length === 0) {
-      toast({
-        title: '⚠️ No file selected',
-        description: 'Please select a file to upload.',
-        variant: 'destructive',
-      });
+      setErrorMessage('Please select a file or provide a link to upload.');
+      setShowErrorModal(true);
       return;
     }
 
     const { file, category } = files[0];
 
-    // Client-side safety check (single file + size already enforced on select)
-    const MAX_BYTES = 50 * 1024 * 1024;
-    if (file.size > MAX_BYTES) {
-      toast({ title: 'File too large', description: `Maximum file size is ${MAX_BYTES / 1024 / 1024} MB.`, variant: 'destructive' });
-      return;
+    try {
+      // If file is a native File, upload directly; otherwise it's a remote URL descriptor
+      if (file instanceof File) {
+        await uploadFile(file, description, category);
+      } else {
+        await uploadFile({ url: file.url || '', name: file.name, mime: file.mime, size: file.size }, description, category);
+      }
+
+      // Close dialog and reset
+      setOpen(false);
+      setFiles([]);
+      setDescription('');
+      setMode('file');
+    } catch (error) {
+      setErrorMessage('Failed to upload file. Please try again.');
+      setShowErrorModal(true);
     }
-
-    uploadFile(file, description, category);
-
-    toast({
-      title: '📤 Uploading',
-      description: `Uploading 1 file...`,
-    });
-
-    // Clear and close
-    setFiles([]);
-    setDescription('');
-    setOpen(false);
   };
 
   const getCategoryIcon = (category: FileCategory) => {
     switch (category) {
-      case 'images': return <ImageIcon className="h-4 w-4" />;
-      case 'videos': return <VideoIcon className="h-4 w-4" />;
-      case 'audio': return <Music className="h-4 w-4" />;
-      case 'documents': return <FileText className="h-4 w-4" />;
+      case 'images': return <ImageIcon className="h-5 w-5" />;
+      case 'videos': return <VideoIcon className="h-5 w-5" />;
+      case 'audios': return <Music className="h-5 w-5" />;
+      case 'documents': return <FileText className="h-5 w-5" />;
     }
   };
 
-  const getCategoryColor = (category: FileCategory) => {
+  const getCategoryData = (category: FileCategory) => {
     switch (category) {
-      case 'images': return 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20';
-      case 'videos': return 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20';
-      case 'audio': return 'bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20';
-      case 'documents': return 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20';
+      case 'images': 
+        return { 
+          color: 'from-blue-500 to-cyan-500', 
+          bg: 'bg-gradient-to-br from-blue-500/10 to-cyan-500/10',
+          border: 'border-blue-500/30',
+          text: 'text-blue-600 dark:text-blue-400',
+          emoji: '📸',
+          label: 'Image'
+        };
+      case 'videos': 
+        return { 
+          color: 'from-purple-500 to-pink-500', 
+          bg: 'bg-gradient-to-br from-purple-500/10 to-pink-500/10',
+          border: 'border-purple-500/30',
+          text: 'text-purple-600 dark:text-purple-400',
+          emoji: '🎥',
+          label: 'Video'
+        };
+      case 'audios': 
+        return { 
+          color: 'from-green-500 to-emerald-500', 
+          bg: 'bg-gradient-to-br from-green-500/10 to-emerald-500/10',
+          border: 'border-green-500/30',
+          text: 'text-green-600 dark:text-green-400',
+          emoji: '🎵',
+          label: 'Audio'
+        };
+      case 'documents': 
+        return { 
+          color: 'from-orange-500 to-amber-500', 
+          bg: 'bg-gradient-to-br from-orange-500/10 to-amber-500/10',
+          border: 'border-orange-500/30',
+          text: 'text-orange-600 dark:text-orange-400',
+          emoji: '📄',
+          label: 'Document'
+        };
     }
   };
-
-  const categoryCounts = files.reduce((acc, { category }) => {
-    acc[category] = (acc[category] || 0) + 1;
-    return acc;
-  }, {} as Record<FileCategory, number>);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button className="rounded-full shadow-lg hover:shadow-xl transition-all duration-300 h-10 sm:h-12 px-4 sm:px-6 text-sm sm:text-base">
-          <Upload className="mr-2 h-4 w-4 sm:h-5 sm:w-5" />
-          <span className="font-semibold">Upload</span>
+        <Button className="btn-gradient-shine rounded-full bg-gradient-to-r from-primary to-accent text-white shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300 h-9 sm:h-10 px-3 sm:px-5 text-xs sm:text-sm font-semibold">
+          <Upload className="mr-1.5 sm:mr-2 h-3.5 w-3.5 sm:h-4 sm:w-4" />
+          <span>Upload</span>
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-2xl max-w-[95vw] max-h-[90vh] overflow-y-auto rounded-3xl border-0 shadow-2xl">
-        <DialogHeader className="space-y-3">
-          <DialogTitle className="text-xl sm:text-2xl font-bold">Upload Files</DialogTitle>
-          <DialogDescription className="text-sm sm:text-base">
-            Select files and they'll be automatically sorted
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent className="sm:max-w-md w-[92vw] sm:w-full max-h-[88vh] overflow-hidden rounded-3xl border-0 shadow-2xl p-0 bg-background">
+        
+        {/* Header */}
+        <div className="px-6 pt-6 pb-5">
+          <DialogHeader className="space-y-2">
+            <DialogTitle className="text-2xl font-bold text-foreground">Upload File</DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground">
+              Max 50 MB • Images, Videos, Audio, Documents
+            </DialogDescription>
+          </DialogHeader>
+        </div>
 
-        <div className="space-y-4 sm:space-y-6">
-          <div className="space-y-2 sm:space-y-3">
-            <Label htmlFor="file-upload" className="text-sm sm:text-base font-semibold">Select File</Label>
-            <Input
+        <div className="px-6 pb-6 space-y-5 max-h-[calc(88vh-160px)] overflow-y-auto">
+          {/* Mode toggle: File or Link */}
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setMode('file')}
+              className={cn(
+                'px-3 py-1 rounded-lg text-sm font-medium border-2',
+                mode === 'file' ? 'bg-muted/40 border-primary text-foreground' : 'bg-transparent border-muted-foreground/10 text-muted-foreground'
+              )}
+            >
+              File
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('link')}
+              className={cn(
+                'px-3 py-1 rounded-lg text-sm font-medium border-2',
+                mode === 'link' ? 'bg-muted/40 border-primary text-foreground' : 'bg-transparent border-muted-foreground/10 text-muted-foreground'
+              )}
+            >
+              Link
+            </button>
+            <div className="ml-auto text-xs text-muted-foreground">You can paste a public URL and we will fetch & categorize it</div>
+          </div>
+
+          {/* Link input (shown in Link mode when no file selected) */}
+          {mode === 'link' && files.length === 0 && (
+            <div className="flex gap-2 mt-3">
+              <Input
+                placeholder="https://example.com/photo.jpg"
+                value={linkUrl}
+                onChange={(e) => setLinkUrl(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && processLink(linkUrl)}
+              />
+              <Button onClick={() => processLink(linkUrl)}>
+                Add
+              </Button>
+            </div>
+          )}
+
+          {/* Drag & Drop Zone - Only show when no file selected and in File mode */}
+          {mode === 'file' && files.length === 0 && (
+            <div
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              className={cn(
+                "relative border-2 border-dashed rounded-2xl p-10 transition-all duration-200 cursor-pointer group",
+                isDragging 
+                  ? "border-primary bg-primary/5 scale-[0.98]" 
+                  : "border-muted-foreground/20 hover:border-primary hover:bg-primary/5"
+              )}
+            >
+            <input
               id="file-upload"
               type="file"
               onChange={handleFileSelect}
-              className="rounded-2xl border-2 border-dashed h-12 sm:h-14 text-sm file:mr-4 file:rounded-full file:border-0 file:bg-primary file:text-primary-foreground file:font-semibold file:text-sm"
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
               accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt"
             />
-            <p className="text-xs sm:text-sm text-muted-foreground">Max file size: 50 MB · One file at a time</p>
-            <p className="text-xs sm:text-sm text-muted-foreground mt-1">📸 Images • 🎥 Videos • 🎵 Audio • 📄 Documents</p>
-          </div>
-
-          {files.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {Object.entries(categoryCounts).map(([category, count]) => (
-                <div
-                  key={category}
-                  className={cn(
-                    'flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full border-2 text-xs sm:text-sm font-bold backdrop-blur-sm',
-                    getCategoryColor(category as FileCategory)
-                  )}
-                >
-                  {getCategoryIcon(category as FileCategory)}
-                  <span className="capitalize hidden sm:inline">{category}</span>
-                  <span className="capitalize sm:hidden">{category.slice(0, 3)}</span>
-                  <span className="bg-current text-white rounded-full w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center text-xs">
-                    {count}
-                  </span>
-                </div>
-              ))}
+            
+            <div className="flex flex-col items-center justify-center gap-4 text-center pointer-events-none">
+              <div className="w-20 h-20 rounded-full bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center group-hover:scale-110 transition-transform">
+                <CloudUpload className="h-10 w-10 text-primary" />
+              </div>
+              
+              <div className="space-y-2">
+                <p className="text-lg font-bold text-foreground">
+                  {isDragging ? "Drop it here!" : "Click or drag file here"}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Support all file types up to 50MB
+                </p>
+              </div>
             </div>
+          </div>
           )}
-
+          {/* Selected File Preview */}
           {files.length > 0 && (
-            <div className="space-y-2 sm:space-y-3 max-h-60 sm:max-h-80 overflow-y-auto rounded-2xl border-2 p-3 sm:p-4 bg-muted/30">
-              {files.map((item, index) => (
-                <div
-                  key={index}
-                  className="flex items-center gap-3 sm:gap-4 p-2 sm:p-3 rounded-2xl border-2 bg-background hover:bg-accent/50 transition-all duration-200"
-                >
-                  <div className="flex-shrink-0">
-                    {item.preview ? (
-                      <div className="relative w-12 h-12 sm:w-14 sm:h-14 rounded-xl overflow-hidden">
-                        <img
-                          src={item.preview}
-                          alt={item.file.name}
-                          className="w-full h-full object-cover"
-                        />
+            <div className="space-y-4">
+              {files.map((item, index) => {
+                const categoryData = getCategoryData(item.category);
+                return (
+                  <div
+                    key={index}
+                    className="rounded-2xl border bg-muted/30 p-4 hover:bg-muted/50 transition-all"
+                  >
+                    <div className="flex items-center gap-4">
+                      {/* Preview/Icon */}
+                      <div className="flex-shrink-0">
+                        {item.preview ? (
+                          <div className="relative w-20 h-20 rounded-xl overflow-hidden ring-2 ring-border">
+                            <img
+                              src={item.preview}
+                              alt={item.file.name}
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                        ) : (
+                          <div className={cn(
+                            "w-20 h-20 rounded-xl flex items-center justify-center bg-gradient-to-br shadow-lg",
+                            categoryData.color
+                          )}>
+                            <span className="text-3xl">{categoryData.emoji}</span>
+                          </div>
+                        )}
                       </div>
-                    ) : (
-                      <div className={cn('w-12 h-12 sm:w-14 sm:h-14 rounded-xl flex items-center justify-center', getCategoryColor(item.category))}>
-                        {getCategoryIcon(item.category)}
-                      </div>
-                    )}
-                  </div>
 
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs sm:text-sm font-semibold truncate">{item.file.name}</p>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
-                      <span className="font-medium">{(item.file.size / 1024 / 1024).toFixed(2)} MB</span>
-                      <span className="hidden sm:inline">•</span>
-                      <span className="capitalize font-medium hidden sm:inline">{item.category}</span>
+                      {/* File Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold mb-2 shadow-sm", categoryData.bg, categoryData.text)}>
+                          {getCategoryIcon(item.category)}
+                          <span>{categoryData.label}</span>
+                        </div>
+                        <p className="text-base font-bold truncate text-foreground mb-1">{item.file.name}</p>
+                        <p className="text-sm font-medium text-muted-foreground">
+                          {(item.file.size / 1024 / 1024).toFixed(2)} MB
+                        </p>
+                      </div>
+
+                      {/* Remove Button */}
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={removeFile}
+                        className="rounded-full h-10 w-10 hover:bg-destructive/20 hover:text-destructive flex-shrink-0"
+                      >
+                        <X className="h-5 w-5" />
+                      </Button>
                     </div>
                   </div>
-
-                  <Button variant="ghost" size="icon" onClick={() => removeFile(index)} className="rounded-full h-8 w-8 sm:h-9 sm:w-9">
-                    <X className="h-4 w-4 sm:h-5 sm:w-5" />
-                  </Button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
-          <div className="space-y-2 sm:space-y-3">
+          {/* Description */}
+          <div className="space-y-3">
             <div className="flex justify-between items-center">
-                <Label htmlFor="description" className="text-sm sm:text-base font-semibold">Description (Optional)</Label>
-                <span className="text-xs text-muted-foreground">{description.length} / 500</span>
+              <Label htmlFor="description" className="text-sm font-semibold text-foreground">
+                Description (Optional)
+              </Label>
+              <span className="text-xs font-medium text-muted-foreground">
+                {description.length}/500
+              </span>
             </div>
             <Textarea
               id="description"
-              placeholder="Add a description for all selected files..."
+              placeholder="Add a description for your file..."
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               maxLength={500}
               rows={3}
-              className="rounded-2xl resize-none text-sm sm:text-base"
+              className="rounded-xl resize-none text-sm border-2 focus:border-primary"
             />
           </div>
 
-          <div className="flex flex-col-reverse sm:flex-row gap-2 sm:gap-3 pt-2">
+        </div>
+
+        {/* Footer Actions */}
+        <div className="px-6 py-5 border-t bg-muted/20">
+          <div className="flex gap-3">
             <Button
+              type="button"
               variant="outline"
               onClick={() => {
                 setFiles([]);
                 setDescription('');
                 setOpen(false);
               }}
-              className="flex-1 rounded-full h-10 sm:h-12 font-semibold text-sm sm:text-base"
+              className="flex-1 h-12 rounded-xl font-semibold text-base border-2"
             >
               Cancel
             </Button>
             <Button
+              type="button"
               onClick={handleUpload}
               disabled={files.length === 0}
-              className="flex-1 rounded-full h-10 sm:h-12 font-semibold shadow-lg hover:shadow-xl transition-all text-sm sm:text-base"
+              className="flex-1 h-12 rounded-xl font-bold text-base shadow-lg bg-gradient-to-r from-[#667eea] to-[#764ba2] text-white hover:shadow-xl hover:scale-[1.02] transition-all disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:scale-100"
             >
-              <Check className="mr-2 h-4 w-4 sm:h-5 sm:w-5" />
-              Upload {files.length} {files.length === 1 ? 'File' : 'Files'}
+              <Check className="mr-2 h-5 w-5" />
+              Upload
             </Button>
           </div>
         </div>
+
       </DialogContent>
+
+      {/* Error Modal */}
+      <Dialog open={showErrorModal} onOpenChange={setShowErrorModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <div className="flex justify-center mb-4">
+              <XCircle className="h-16 w-16 text-destructive" />
+            </div>
+            <DialogTitle className="text-center text-xl">Error</DialogTitle>
+            <DialogDescription className="text-center">
+              {errorMessage}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-center mt-4">
+            <Button onClick={() => setShowErrorModal(false)} variant="destructive" className="w-full">
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="logoTitle">
+  <title id="logoTitle">WebGallery logo</title>
+  <defs>
+    <linearGradient id="g1" x1="0" x2="1">
+      <stop offset="0" stop-color="#0EA5A4"/>
+      <stop offset="1" stop-color="#7C3AED"/>
+    </linearGradient>
+    <filter id="f1" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-opacity="0.12" flood-color="#0b1220"/>
+    </filter>
+  </defs>
+
+  <!-- rounded brand mark -->
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="url(#g1)" filter="url(#f1)"/>
+
+  <!-- camera aperture shape (cutout) -->
+  <g transform="translate(16,16)">
+    <circle cx="16" cy="12" r="8" fill="#fff" opacity="0.96"/>
+    <path d="M16 6 L19 12 L25 12 L20 16 L22 22 L16 18 L10 22 L12 16 L7 12 L13 12 Z" fill="#0EA5A4" opacity="0.95"/>
+    <circle cx="22.5" cy="8.5" r="2.75" fill="#FB923C"/>
+  </g>
+</svg>

@@ -28,8 +28,16 @@ const nextConfig: NextConfig = {
         port: '',
         pathname: '/**',
       },
+      {
+        protocol: 'https',
+        hostname: 'rmhjtozbrgwkjhreibii.supabase.co',
+        port: '',
+        pathname: '/storage/v1/object/**',
+      },
     ],
-    unoptimized: true
+    unoptimized: false,
+    formats: ['image/avif', 'image/webp'],
+    minimumCacheTTL: 86400,
   },
   experimental: {
     serverActions: {

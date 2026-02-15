@@ -19,7 +19,7 @@ import { useState, useRef } from 'react';
 import { Textarea } from './ui/textarea';
 
 type UploadDialogProps = {
-  type: 'images' | 'videos' | 'documents';
+  type: 'images' | 'videos' | 'documents' | 'audios';
 };
 
 export function UploadDialog({ type }: UploadDialogProps) {
