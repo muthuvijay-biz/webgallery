@@ -57,12 +57,36 @@ export function GalleryClient({
   const router = useRouter();
   const [isClient, setIsClient] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const pswpRef = useRef<any>(null);
+
+  // Initialize PhotoSwipeLightbox for the grid on client
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const lightbox = new PhotoSwipeLightbox({
+        gallery: '#pswp-gallery',
+        children: 'a',
+        pswpModule: PhotoSwipe,
+        showHideAnimationType: 'zoom'
+      });
+      lightbox.init();
+      pswpRef.current = lightbox;
+      return () => {
+        try { lightbox.destroy(); } catch (e) {}
+        pswpRef.current = null;
+      };
+    } catch (e) {
+      console.error('PhotoSwipe init error:', e);
+    }
+  }, []);
   
   // Image viewer state
   const [viewerOpen, setViewerOpen] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   // small enter animation flag for smoother opening
   const [viewerJustOpened, setViewerJustOpened] = useState(false);
+  // whether the embla/full viewer has positioned to the requested index (prevents flash-through)
+  const [viewerReady, setViewerReady] = useState(true);
   // Sliding animation state for mobile/desktop gallery-style transitions
   const [prevIndex, setPrevIndex] = useState<number | null>(null);
   const [isSliding, setIsSliding] = useState(false);
@@ -93,14 +117,41 @@ export function GalleryClient({
       setCurrentIndex(selected);
     };
     emblaApi.on('select', onSelect);
-    return () => emblaApi.off('select', onSelect);
+    return () => { emblaApi.off('select', onSelect); };
   }, [emblaApi]);
 
   // When viewer opens, ensure Embla is at the current index
   useEffect(() => {
     if (!emblaApi) return;
+
+    // If viewer is open, ensure embla is positioned at currentIndex.
+    // Use a 'ready' signal to avoid rendering the carousel until it has jumped there.
     if (viewerOpen) {
-      emblaApi.scrollTo(currentIndex);
+      try {
+        emblaApi.scrollTo(currentIndex);
+      } catch (e) {
+        /* ignore */
+      }
+
+      // when embla reports the selected snap equals our index mark viewerReady
+      const onSelect = () => {
+        const selected = emblaApi.selectedScrollSnap();
+        if (selected === currentIndex) {
+          setViewerReady(true);
+        }
+      };
+
+      // fallback in case the select event doesn't fire quickly
+      const t = window.setTimeout(() => setViewerReady(true), 300);
+      emblaApi.on('select', onSelect);
+
+      return () => {
+        clearTimeout(t);
+        try { emblaApi.off('select', onSelect); } catch (e) {}
+      };
+    } else {
+      // viewer closed — mark ready so next open can control readiness explicitly
+      setViewerReady(true);
     }
   }, [emblaApi, viewerOpen, currentIndex]);
   
@@ -139,6 +190,12 @@ export function GalleryClient({
     setSlideDirection(null);
     setSlideActive(false);
 
+    // ensure drawer is closed when opening the full viewer
+    setDrawerOpen(false);
+
+    // mark viewer as not-yet-ready so we can avoid showing the wrong slide
+    setViewerReady(false);
+
     setCurrentIndex(index);
     setViewerOpen(true);
     // trigger a brief enter animation for a smoother open transition
@@ -163,39 +220,20 @@ export function GalleryClient({
     setDrawerOpen(false);
   }, []);
 
-  // PhotoSwipe lightbox ref
-  const pswpRef = useRef<any>(null);
+  // Lightbox is provided via `lightboxRef` below (separate component). Cleanup handled there.
 
-  // cleanup any timeouts on unmount
+  // ensure no focused descendant remains inside the drawer when it is hidden
   useEffect(() => {
-    return () => {
-      if (slideTimeoutRef.current) {
-        clearTimeout(slideTimeoutRef.current);
-        slideTimeoutRef.current = null;
+    if (!drawerOpen && drawerRef.current) {
+      const active = document.activeElement as HTMLElement | null;
+      if (active && drawerRef.current.contains(active)) {
+        try { active.blur(); } catch (e) { /* ignore */ }
       }
-      if (pswpRef.current) {
-        try { pswpRef.current.destroy(); } catch (e) {}
-        pswpRef.current = null;
-      }
-    };
-  }, []);
-
-  // Initialize PhotoSwipe lightbox for the grid on client
-  useEffect(() => {
-    try {
-      const lightbox = new PhotoSwipeLightbox({
-        gallery: '#pswp-gallery',
-        children: 'a',
-        pswpModule: PhotoSwipe,
-        showHideAnimationType: 'zoom'
-      });
-      lightbox.init();
-      pswpRef.current = lightbox;
-    } catch (e) {
-      // ignore if initialization fails
-      console.error('PhotoSwipe init error:', e);
     }
-  }, []);
+  }, [drawerOpen]);
+
+  // LightGallery will be initialized via the React component wrapper on the grid (see JSX)
+  // we only store its instance via onInit so we can programmatically open/close it.
 
   // Navigate with slide animation (gallery-style). If viewer is closed, just set index.
   const navigateTo = useCallback((index: number) => {
@@ -346,6 +384,7 @@ export function GalleryClient({
                 </p>
               )}
               
+              {/* PhotoSwipe: grid must have id `pswp-gallery` so PhotoSwipeLightbox can index anchors */}
               <div id="pswp-gallery" className="grid gap-2 sm:gap-3 md:gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
                 {filteredPhotos.map((photo, index) => (
                   <PhotoCard 
@@ -354,21 +393,18 @@ export function GalleryClient({
                     index={index}
                     isAdmin={isAdmin}
                     onView={(idx) => {
-                      const hasTouch = typeof window !== 'undefined' && (navigator.maxTouchPoints > 0 || 'ontouchstart' in window);
-                      console.debug('[gallery] PhotoCard onView', { idx, isMobile, hasTouch });
-                      if (isMobile || hasTouch) {
-                        // always open drawer on mobile / touch-capable devices
+                      // Decide viewer behavior by viewport (mobile breakpoint), not by presence of touch support.
+                      // This ensures desktop users (even on touch-capable devices) get the desktop lightbox.
+                      console.debug('[gallery] PhotoCard onView', { idx, isMobile, width: typeof window !== 'undefined' ? window.innerWidth : null });
+                      if (isMobile) {
                         setCurrentIndex(idx);
                         setDrawerOpen(true);
-                        // ensure PhotoSwipe won't open
-                        try { pswpRef.current?.close(); } catch (e) {}
+                        setViewerOpen(false); // ensure full viewer isn't active
+                        try { lightboxRef.current?.close?.(); } catch (e) {}
                         return;
                       }
 
-                      // If PhotoSwipe is initialized, open it for best transition
-                      if (pswpRef.current) {
-                        try { pswpRef.current.open(idx); return; } catch (e) {}
-                      }
+                      try { pswpRef.current?.open(idx); return; } catch (e) { /* fallback below */ }
                       viewerOpen ? navigateTo(idx) : openViewer(idx);
                     }}
                   />
@@ -525,50 +561,74 @@ export function GalleryClient({
         </div>
       </div>
 
-      {/* Image Viewer - Mobile Swipe + Desktop Arrows */}
-      {viewerOpen && filteredPhotos.length > 0 && (
+      {/* Image Viewer + Drawer — render the overlay when either the full viewer or the drawer is open */}
+      {(viewerOpen || drawerOpen) && filteredPhotos.length > 0 && (
         <div className="fixed inset-0 bg-black z-50">
-          {/* Header */}
-          <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/90 to-transparent p-4 z-20">
-            <div className="flex items-center justify-between">
-              <span className="text-white text-sm font-medium">{currentIndex + 1} / {filteredPhotos.length}</span>
-              <button onClick={closeViewer} className="text-white hover:bg-white/20 h-10 w-10 rounded-full flex items-center justify-center transition">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-          </div>
-
-          {/* Image with Embla carousel for smooth native swipes */}
-          <div className="h-full flex items-center justify-center relative">
-            <div className="w-full h-full" ref={emblaRef}>
-              <div className="flex h-full">
-                {filteredPhotos.map((photo, idx) => (
-                  <div key={photo['File Name']} className="relative w-full h-full flex-shrink-0">
-                    <div className="relative w-full h-full">
-                      <Image src={photo.path} alt={photo['File Name']} fill className="object-contain" sizes="100vw" priority quality={90} />
-                    </div>
-                  </div>
-                ))}
+          {/* Header (only shown for the full viewer) */}
+          {viewerOpen && (
+            <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/90 to-transparent p-4 z-20">
+              <div className="flex items-center justify-between">
+                <span className="text-white text-sm font-medium">{currentIndex + 1} / {filteredPhotos.length}</span>
+                <button onClick={closeViewer} className="text-white hover:bg-white/20 h-10 w-10 rounded-full flex items-center justify-center transition">
+                  <X className="h-5 w-5" />
+                </button>
               </div>
             </div>
+          )}
 
-            {/* Desktop Arrow Controls - HIDDEN ON MOBILE */}
-            {currentIndex > 0 && (
-              <button onClick={() => navigateTo(currentIndex - 1)} className="hidden md:flex absolute left-4 top-1/2 -translate-y-1/2 text-white bg-black/60 hover:bg-black/80 h-12 w-12 rounded-full items-center justify-center backdrop-blur-sm z-10">
-                <ChevronLeft className="h-6 w-6" />
-              </button>
-            )}
-            {currentIndex < filteredPhotos.length - 1 && (
-              <button onClick={() => navigateTo(currentIndex + 1)} className="hidden md:flex absolute right-4 top-1/2 -translate-y-1/2 text-white bg-black/60 hover:bg-black/80 h-12 w-12 rounded-full items-center justify-center backdrop-blur-sm z-10">
-                <ChevronRight className="h-6 w-6" />
-              </button>
-            )}
-          </div>
+          {/* Image with Embla carousel for smooth native swipes (only for full viewer) */}
+          {viewerOpen && (
+            <div className="h-full flex items-center justify-center relative">
+              <div className="w-full h-full" ref={emblaRef}>
+                <div className={cn("flex h-full", !viewerReady && "opacity-0 pointer-events-none") }>
+                  {filteredPhotos.map((photo, idx) => (
+                    <div key={photo['File Name']} className="relative w-full h-full flex-shrink-0">
+                      <div className="relative w-full h-full">
+                        <Image src={photo.path} alt={photo['File Name']} fill className="object-contain" sizes="100vw" priority quality={90} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
 
-          {/* Bottom Description - Always Visible, 2 Lines Max */}
+                {/* show the requested image immediately while Embla positions (no flash-through) */}
+                {!viewerReady && (
+                  <>
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/90 z-10">
+                      <div className="relative w-full h-full max-h-[80vh] flex items-center justify-center p-4">
+                        <Image
+                          src={filteredPhotos[currentIndex].path}
+                          alt={filteredPhotos[currentIndex]['File Name']}
+                          fill
+                          className="object-contain"
+                          sizes="100vw"
+                        />
+                      </div>
+                    </div>
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
+                      <div className="h-10 w-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center text-white">Loading…</div>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Desktop Arrow Controls - HIDDEN ON MOBILE */}
+              {currentIndex > 0 && (
+                <button onClick={() => navigateTo(currentIndex - 1)} className="hidden md:flex absolute left-4 top-1/2 -translate-y-1/2 text-white bg-black/60 hover:bg-black/80 h-12 w-12 rounded-full items-center justify-center backdrop-blur-sm z-10">
+                  <ChevronLeft className="h-6 w-6" />
+                </button>
+              )}
+              {currentIndex < filteredPhotos.length - 1 && (
+                <button onClick={() => navigateTo(currentIndex + 1)} className="hidden md:flex absolute right-4 top-1/2 -translate-y-1/2 text-white bg-black/60 hover:bg-black/80 h-12 w-12 rounded-full items-center justify-center backdrop-blur-sm z-10">
+                  <ChevronRight className="h-6 w-6" />
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Bottom Description - visible when viewer overlay OR drawer is open */}
           <div 
             className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/95 to-transparent p-4 pb-6 z-20 cursor-pointer"
-            onClick={() => setDrawerOpen((s) => !s)}
+            onClick={() => { setDrawerOpen((s) => { const next = !s; if (next) setViewerOpen(false); return next; }); }}
             onTouchStart={(e) => {
               (window as any).overlayStartY = e.touches[0].clientY;
             }}
@@ -605,112 +665,114 @@ export function GalleryClient({
             </div>
           </div>
 
-          {/* Bottom Drawer - Full Details */}
-          {/* backdrop - click outside to close */}
+          {/* Bottom Drawer - Full Details (rendered when drawerOpen is true) */}
           {drawerOpen && (
-            <div
-              className="fixed inset-0 bg-black/40"
-              style={{ zIndex: 29 }}
-              onClick={() => setDrawerOpen(false)}
-            />
+            <>
+              <div
+                className="fixed inset-0 bg-black/40"
+                style={{ zIndex: 29 }}
+                onClick={() => setDrawerOpen(false)}
+              />
+
+              <div
+                ref={drawerRef}
+                role="dialog"
+                aria-modal="true"
+                aria-hidden={!drawerOpen}
+                inert={!drawerOpen}
+                className={`absolute bottom-0 left-0 right-0 bg-background rounded-t-3xl shadow-2xl z-30 max-h-[80vh] overflow-auto ${isDrawerDragging ? '' : 'transition-transform duration-300'}`}
+                style={{ transform: `translateY(${drawerOpen ? (isDrawerDragging ? drawerTranslateY : 0) : '100%'})`, touchAction: 'pan-y' } as any}
+                onTouchStart={(e) => {
+                  const y = e.touches[0].clientY;
+                  drawerStartYRef.current = y;
+                  drawerLastTouchYRef.current = y;
+                  drawerLastTouchTimeRef.current = Date.now();
+                  drawerInitialScrollRef.current = drawerRef.current?.scrollTop ?? 0;
+                  setIsDrawerDragging(true);
+                  setDrawerTranslateY(0);
+                }}
+                onTouchMove={(e) => {
+                  const startY = drawerStartYRef.current;
+                  if (startY === null) return;
+                  const y = e.touches[0].clientY;
+                  const delta = y - startY;
+
+                  // track last touch for velocity
+                  drawerLastTouchYRef.current = y;
+                  drawerLastTouchTimeRef.current = Date.now();
+
+                  // if content is scrolled, don't intercept the pull-down
+                  if (drawerInitialScrollRef.current > 0 && delta > 0) return;
+
+                  if (delta > 0) {
+                    e.preventDefault();
+                    // apply rubber-band effect for large drags
+                    const capped = Math.min(delta, window.innerHeight * 0.6);
+                    setDrawerTranslateY(capped);
+                  }
+                }}
+                onTouchEnd={() => {
+                  const startY = drawerStartYRef.current ?? 0;
+                  const lastY = drawerLastTouchYRef.current ?? startY;
+                  const lastTime = drawerLastTouchTimeRef.current ?? Date.now();
+                  const now = Date.now();
+                  const delta = (lastY - startY) || 0; // positive if dragged down
+                  const timeDiff = Math.max(1, now - lastTime);
+                  const velocity = delta / timeDiff; // px per ms
+
+                  setIsDrawerDragging(false);
+
+                  const THRESHOLD = 110; // px
+                  const VELOCITY_CLOSE = 0.5; // px/ms (~500px/s)
+
+                  if (drawerTranslateY > THRESHOLD || velocity > VELOCITY_CLOSE) {
+                    setDrawerOpen(false);
+                  } else {
+                    setDrawerTranslateY(0);
+                  }
+
+                  drawerStartYRef.current = null;
+                  drawerLastTouchYRef.current = null;
+                  drawerLastTouchTimeRef.current = null;
+                }}
+              >
+                <div className="relative">
+                  <div className="flex justify-center py-3 border-b">
+                    <div className="w-12 h-1 bg-muted-foreground/30 rounded-full" />
+                  </div>
+
+                  {/* Move Delete to top-right inside drawer */}
+                  {isAdmin && (
+                    <div className="absolute right-4 top-4">
+                      <DeleteButton fileName={filteredPhotos[currentIndex]['File Name']} type="images" />
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-6 space-y-4">
+                  <h2 className="text-xl font-bold">Details</h2>
+                  <div className="space-y-3">
+                    <div className="bg-muted/30 rounded-xl p-4">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase mb-1">File Name</p>
+                      <p className="text-sm font-medium">{filteredPhotos[currentIndex]['File Name']}</p>
+                    </div>
+                    {filteredPhotos[currentIndex]['Description'] && (
+                      <div className="bg-muted/30 rounded-xl p-4">
+                        <p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Description</p>
+                        <p className="text-sm break-words">{filteredPhotos[currentIndex]['Description']}</p>
+                      </div>
+                    )}
+                    {filteredPhotos[currentIndex]['Capture Date'] && (
+                      <div className="bg-muted/30 rounded-xl p-4">
+                        <p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Capture Date</p>
+                        <p className="text-sm">{filteredPhotos[currentIndex]['Capture Date']}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </>
           )}
-
-          <div
-            ref={drawerRef}
-            role="dialog"
-            aria-modal="true"
-            aria-hidden={!drawerOpen}
-            className={`absolute bottom-0 left-0 right-0 bg-background rounded-t-3xl shadow-2xl z-30 max-h-[80vh] overflow-auto ${isDrawerDragging ? '' : 'transition-transform duration-300'}`}
-            style={{ transform: `translateY(${drawerOpen ? (isDrawerDragging ? drawerTranslateY : 0) : '100%'})`, touchAction: 'pan-y' } as any}
-            onTouchStart={(e) => {
-              const y = e.touches[0].clientY;
-              drawerStartYRef.current = y;
-              drawerLastTouchYRef.current = y;
-              drawerLastTouchTimeRef.current = Date.now();
-              drawerInitialScrollRef.current = drawerRef.current?.scrollTop ?? 0;
-              setIsDrawerDragging(true);
-              setDrawerTranslateY(0);
-            }}
-            onTouchMove={(e) => {
-              const startY = drawerStartYRef.current;
-              if (startY === null) return;
-              const y = e.touches[0].clientY;
-              const delta = y - startY;
-
-              // track last touch for velocity
-              drawerLastTouchYRef.current = y;
-              drawerLastTouchTimeRef.current = Date.now();
-
-              // if content is scrolled, don't intercept the pull-down
-              if (drawerInitialScrollRef.current > 0 && delta > 0) return;
-
-              if (delta > 0) {
-                e.preventDefault();
-                // apply rubber-band effect for large drags
-                const capped = Math.min(delta, window.innerHeight * 0.6);
-                setDrawerTranslateY(capped);
-              }
-            }}
-            onTouchEnd={() => {
-              const startY = drawerStartYRef.current ?? 0;
-              const lastY = drawerLastTouchYRef.current ?? startY;
-              const lastTime = drawerLastTouchTimeRef.current ?? Date.now();
-              const now = Date.now();
-              const delta = (lastY - startY) || 0; // positive if dragged down
-              const timeDiff = Math.max(1, now - lastTime);
-              const velocity = delta / timeDiff; // px per ms
-
-              setIsDrawerDragging(false);
-
-              const THRESHOLD = 110; // px
-              const VELOCITY_CLOSE = 0.5; // px/ms (~500px/s)
-
-              if (drawerTranslateY > THRESHOLD || velocity > VELOCITY_CLOSE) {
-                setDrawerOpen(false);
-              } else {
-                setDrawerTranslateY(0);
-              }
-
-              drawerStartYRef.current = null;
-              drawerLastTouchYRef.current = null;
-              drawerLastTouchTimeRef.current = null;
-            }}
-          >
-            <div className="relative">
-              <div className="flex justify-center py-3 border-b">
-                <div className="w-12 h-1 bg-muted-foreground/30 rounded-full" />
-              </div>
-
-              {/* Move Delete to top-right inside drawer */}
-              {isAdmin && (
-                <div className="absolute right-4 top-4">
-                  <DeleteButton fileName={filteredPhotos[currentIndex]['File Name']} type="images" />
-                </div>
-              )}
-            </div>
-
-            <div className="p-6 space-y-4">
-              <h2 className="text-xl font-bold">Details</h2>
-              <div className="space-y-3">
-                <div className="bg-muted/30 rounded-xl p-4">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase mb-1">File Name</p>
-                  <p className="text-sm font-medium">{filteredPhotos[currentIndex]['File Name']}</p>
-                </div>
-                {filteredPhotos[currentIndex]['Description'] && (
-                  <div className="bg-muted/30 rounded-xl p-4">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Description</p>
-                    <p className="text-sm break-words">{filteredPhotos[currentIndex]['Description']}</p>
-                  </div>
-                )}
-                {filteredPhotos[currentIndex]['Capture Date'] && (
-                  <div className="bg-muted/30 rounded-xl p-4">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Capture Date</p>
-                    <p className="text-sm">{filteredPhotos[currentIndex]['Capture Date']}</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
         </div>
       )}
 

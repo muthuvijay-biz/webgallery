@@ -116,6 +116,9 @@ export function PhotoCard({ photo, index, isAdmin, onView }: PhotoCardProps) {
         {/* Anchor for PhotoSwipe: on mobile intercept the click and open the app drawer; on desktop let PhotoSwipe's listener handle it */}
         <a
           href={photo.path}
+          data-src={photo.path}
+          data-sub-html={photo['Description'] || photo['File Name']}
+          data-lg-size={`${dims.w || 800}-${dims.h || 600}`}
           data-pswp-width={dims.w || undefined}
           data-pswp-height={dims.h || undefined}
           onClick={(e) => {
@@ -124,7 +127,6 @@ export function PhotoCard({ photo, index, isAdmin, onView }: PhotoCardProps) {
             e.stopPropagation();
             onView(index);
           }}
-          aria-hidden
         >
           <Image
             src={photo.path}
