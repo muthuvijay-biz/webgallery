@@ -78,14 +78,61 @@ export function SmartUploadDialog() {
   };
 
   const detectCategoryFromUrl = (url: string): FileCategory => {
-    const extMatch = url.split('?')[0].match(/\.([a-z0-9]+)$/i);
+    // try extension first
+    const cleaned = url.split('?')[0];
+    const extMatch = cleaned.match(/\.([a-z0-9]+)$/i);
     const ext = extMatch ? extMatch[1].toLowerCase() : '';
 
-    if (ext.match(/^(jpg|jpeg|png|gif|webp|avif|svg|heic|heif)$/i)) return 'images';
-    if (ext.match(/^(mp4|mov|webm|mkv|avi|3gp|ogg|flv|ts)$/i)) return 'videos';
-    if (ext.match(/^(mp3|wav|m4a|flac|aac|ogg)$/i)) return 'audios';
-    if (ext.match(/^(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|rtf)$/i)) return 'documents';
-    // fallback to documents
+    if (ext && ext.match(/^(jpg|jpeg|png|gif|webp|avif|svg|heic|heif)$/i)) return 'images';
+    if (ext && ext.match(/^(mp4|mov|webm|mkv|avi|3gp|ogg|flv|ts)$/i)) return 'videos';
+    if (ext && ext.match(/^(mp3|wav|m4a|flac|aac|ogg)$/i)) return 'audios';
+    if (ext && ext.match(/^(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|rtf)$/i)) return 'documents';
+
+    // host-based heuristics for popular platforms
+    try {
+      const u = new URL(url);
+      const host = u.hostname.toLowerCase();
+
+      // explicit platform rules
+      if (/youtube\.com|youtu\.be|vimeo\.com|dailymotion\.com|twitch\.tv/.test(host)) return 'videos';
+      if (/soundcloud\.com|bandcamp\.com/.test(host)) return 'audios';
+      if (/imgur\.com|unsplash\.com|flickr\.com|photos\.google\.com|googleusercontent\.com/.test(host)) return 'images';
+
+      // Google Drive / Docs: try to pull filename from query params if present
+      if (/drive\.google\.com|docs\.google\.com/.test(host)) {
+        const possibleNames = ['filename', 'name', 'title', 'file'];
+        for (const k of possibleNames) {
+          const v = u.searchParams.get(k);
+          if (v) {
+            const m = v.match(/\.([a-z0-9]+)$/i);
+            if (m) {
+              const e = m[1].toLowerCase();
+              if (e.match(/^(jpg|jpeg|png|gif|webp|avif|svg|heic|heif)$/i)) return 'images';
+              if (e.match(/^(mp4|mov|webm|mkv|avi|3gp|ogg|flv|ts)$/i)) return 'videos';
+              if (e.match(/^(mp3|wav|m4a|flac|aac|ogg)$/i)) return 'audios';
+              if (e.match(/^(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|rtf)$/i)) return 'documents';
+            }
+          }
+        }
+
+        // if path contains a filename-like segment, try that
+        const pathLast = u.pathname.split('/').filter(Boolean).pop() || '';
+        const pathExt = pathLast.match(/\.([a-z0-9]+)$/i);
+        if (pathExt) {
+          const e = pathExt[1].toLowerCase();
+          if (e.match(/^(jpg|jpeg|png|gif|webp|avif|svg|heic|heif)$/i)) return 'images';
+          if (e.match(/^(mp4|mov|webm|mkv|avi|3gp|ogg|flv|ts)$/i)) return 'videos';
+          if (e.match(/^(mp3|wav|m4a|flac|aac|ogg)$/i)) return 'audios';
+        }
+
+        // otherwise leave as documents (user can override below)
+        return 'documents';
+      }
+    } catch (err) {
+      // ignore URL parse errors and fall back
+    }
+
+    // default fallback
     return 'documents';
   };
 
@@ -159,6 +206,27 @@ export function SmartUploadDialog() {
 
   const removeFile = () => {
     setFiles([]);
+  };
+
+  // allow manual override of detected category for the selected file
+  const updateCategory = async (index: number, newCategory: FileCategory) => {
+    const old = files[index];
+    if (!old) return;
+
+    let newPreview = newCategory === 'images'
+      ? ('url' in old.file ? (old.file as RemoteInput).url : old.preview)
+      : undefined;
+
+    // if user switched to images from a local File, generate a preview
+    if (newCategory === 'images' && old.file instanceof File && !newPreview) {
+      try {
+        newPreview = await createPreview(old.file, newCategory);
+      } catch (e) {
+        newPreview = old.preview;
+      }
+    }
+
+    setFiles((prev) => prev.map((f, i) => i === index ? { ...f, category: newCategory, preview: newPreview } : f));
   };
 
   const handleUpload = async () => {
@@ -385,9 +453,24 @@ export function SmartUploadDialog() {
 
                       {/* File Info */}
                       <div className="flex-1 min-w-0">
-                        <div className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold mb-2 shadow-sm", categoryData.bg, categoryData.text)}>
-                          {getCategoryIcon(item.category)}
-                          <span>{categoryData.label}</span>
+                        <div className="flex items-center gap-2">
+                          <div className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold mb-2 shadow-sm", categoryData.bg, categoryData.text)}>
+                            {getCategoryIcon(item.category)}
+                            <span>{categoryData.label}</span>
+                          </div>
+
+                          {/* allow user to override detected category */}
+                          <select
+                            aria-label="Change file category"
+                            value={item.category}
+                            onChange={(e) => updateCategory(index, e.target.value as FileCategory)}
+                            className="ml-2 text-xs bg-transparent border border-muted-foreground/20 rounded px-2 py-1"
+                          >
+                            <option value="images">Image</option>
+                            <option value="videos">Video</option>
+                            <option value="audios">Audio</option>
+                            <option value="documents">Document</option>
+                          </select>
                         </div>
                         <div className="flex flex-col gap-1">
                           <p className="text-base font-bold truncate text-foreground mb-0">{item.file.name}</p>

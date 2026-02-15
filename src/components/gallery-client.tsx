@@ -612,41 +612,85 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {filteredVideos.map((video) => (
                 <div key={video['File Name']} className="relative group rounded-xl overflow-hidden bg-card border border-border/20">
-                  {/(?:youtube\.com|youtu\.be)/i.test(String(video.path)) ? (
-                    <div className="w-full aspect-video bg-black relative overflow-hidden">
-                      {/* YouTube embed for external video links */}
-                      <iframe
-                        title={video['File Name']}
-                        src={(() => {
-                          try {
-                            const u = new URL(String(video.path));
-                            let id = '';
-                            if (u.hostname.includes('youtu.be')) {
-                              id = u.pathname.slice(1);
-                            } else {
-                              id = u.searchParams.get('v') || '';
+                  {(() => {
+                    // normalize to string
+                    const p = String(video.path || '');
+
+                    const getEmbedUrl = (urlStr: string): string | null => {
+                      try {
+                        const u = new URL(urlStr);
+                        const host = u.hostname.toLowerCase();
+
+                        // YouTube (youtu.be short and youtube.com)
+                        if (/youtube\.com|youtu\.be/.test(host)) {
+                          let id = '';
+                          if (host.includes('youtu.be')) {
+                            id = u.pathname.slice(1);
+                          } else {
+                            id = u.searchParams.get('v') || '';
+                            // also handle /embed/ or /watch/ paths
+                            if (!id) {
+                              const m = u.pathname.match(/\/embed\/(.+)/) || u.pathname.match(/\/v\/(.+)/);
+                              if (m) id = m[1] || '';
                             }
-                            return id ? `https://www.youtube.com/embed/${id}` : String(video.path);
-                          } catch (e) {
-                            return String(video.path);
                           }
-                        })()}
-                        className="w-full h-full"
-                        frameBorder="0"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        allowFullScreen
-                      />
-                    </div>
-                  ) : (
-                    <video
-                      controls
-                      className="w-full aspect-video object-cover"
-                      preload="metadata"
-                    >
-                      <source src={video.path} />
-                      Your browser does not support the video tag.
-                    </video>
-                  )}
+                          return id ? `https://www.youtube.com/embed/${id}` : null;
+                        }
+
+                        // Vimeo
+                        if (host.includes('vimeo.com')) {
+                          const m = u.pathname.match(/\/(?:video\/)?(\d+)/);
+                          if (m) return `https://player.vimeo.com/video/${m[1]}`;
+                        }
+
+                        // Dailymotion
+                        if (host.includes('dailymotion.com') || host.includes('dai.ly')) {
+                          const m = u.pathname.match(/video\/(.+)$/) || u.pathname.match(/\/(.+)$/);
+                          if (m) return `https://www.dailymotion.com/embed/video/${m[1]}`;
+                        }
+
+                        // Google Drive — convert sharing link to preview embed when possible
+                        if (host.includes('drive.google.com') || host.includes('docs.google.com')) {
+                          // /file/d/FILE_ID/view or ?id=FILE_ID
+                          const idFromPath = (u.pathname.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || [])[1];
+                          const idFromQ = u.searchParams.get('id');
+                          const id = idFromPath || idFromQ || '';
+                          if (id) return `https://drive.google.com/file/d/${id}/preview`;
+                        }
+
+                        return null;
+                      } catch (e) {
+                        return null;
+                      }
+                    };
+
+                    const embed = getEmbedUrl(p);
+                    if (embed) {
+                      return (
+                        <div className="w-full aspect-video bg-black relative overflow-hidden">
+                          <iframe
+                            title={video['File Name']}
+                            src={embed}
+                            className="w-full h-full"
+                            frameBorder="0"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            allowFullScreen
+                          />
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <video
+                        controls
+                        className="w-full aspect-video object-cover"
+                        preload="metadata"
+                      >
+                        <source src={video.path} />
+                        Your browser does not support the video tag.
+                      </video>
+                    );
+                  })()}
                   <div className="p-3 border-t border-border/20">
                     <p className="font-semibold text-sm truncate">{video['File Name']}</p>
                     {video['Description'] && (
