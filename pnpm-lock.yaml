@@ -104,9 +104,6 @@ importers:
       patch-package:
         specifier: ^8.0.0
         version: 8.0.1
-      photoswipe:
-        specifier: ^5.4.4
-        version: 5.4.4
       react:
         specifier: ^19.2.1
         version: 19.2.4
@@ -119,6 +116,9 @@ importers:
       react-hook-form:
         specifier: ^7.54.2
         version: 7.71.1(react@19.2.4)
+      react-image-gallery:
+        specifier: ^1.2.9
+        version: 1.4.0(react@19.2.4)
       recharts:
         specifier: ^2.15.1
         version: 2.15.4(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -1787,10 +1787,6 @@ packages:
   path-parse@1.0.7:
     resolution: {integrity: sha512-LDJzPVEEEPR+y48z93A0Ed0yXb8pAByGWo/k5YYdYgpY2/2EsOsksJrq7lOHxryrVOn1ejG6oAp8ahvOIQD8sw==}
 
-  photoswipe@5.4.4:
-    resolution: {integrity: sha512-WNFHoKrkZNnvFFhbHL93WDkW3ifwVOXSW3w1UuZZelSmgXpIGiZSNlZJq37rR8YejqME2rHs9EhH9ZvlvFH2NA==}
-    engines: {node: '>= 0.12.0'}
-
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
 
@@ -1887,6 +1883,11 @@ packages:
     engines: {node: '>=18.0.0'}
     peerDependencies:
       react: ^16.8.0 || ^17 || ^18 || ^19
+
+  react-image-gallery@1.4.0:
+    resolution: {integrity: sha512-m7xLq7+g6/xh+BhVMAxvRU0132sNcEFglYsVsgthrnItl9VtLE7MuVvVWD9pvzcI+WBP5+p9HvnRwIiyhPkBDg==}
+    peerDependencies:
+      react: ^16.0.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
   react-is@16.13.1:
     resolution: {integrity: sha512-24e6ynE2H+OKt4kqsOvNd8kBpV65zoxbA4BVsEOB3ARVWQki/DHzaUoC5KuON/BiccDaCCTZBuOcfZs70kR8bQ==}
@@ -3881,8 +3882,6 @@ snapshots:
 
   path-parse@1.0.7: {}
 
-  photoswipe@5.4.4: {}
-
   picocolors@1.1.1: {}
 
   picomatch@2.3.1: {}
@@ -3973,6 +3972,10 @@ snapshots:
       scheduler: 0.27.0
 
   react-hook-form@7.71.1(react@19.2.4):
+    dependencies:
+      react: 19.2.4
+
+  react-image-gallery@1.4.0(react@19.2.4):
     dependencies:
       react: 19.2.4
 

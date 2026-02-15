@@ -26,8 +26,10 @@ export function GalleryHeader({ isAdmin, searchQuery, onSearchChange, onLogout }
             </div>
 
             <div className="hidden sm:block">
-              <h1 className="text-base sm:text-lg font-semibold">WebGallery</h1>
-              <p className="text-xs text-muted-foreground">Secure • Fast • Free</p>
+              <div>
+                <h1 className="text-base sm:text-lg font-semibold">eDocket</h1>
+                <p className="text-xs text-muted-foreground">Truth Triumphs</p>
+              </div>
             </div>
           </div>
 

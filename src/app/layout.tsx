@@ -6,7 +6,7 @@ import { UploadStatusPanel } from '@/components/upload-status-panel';
 import SiteFooter from '@/components/site-footer';
 
 export const metadata: Metadata = {
-  title: 'WebGallery — Secure media gallery',
+  title: 'eDocket — Secure media gallery',
   description: 'Mobile-first, fast, and secure media gallery.',
 };
 

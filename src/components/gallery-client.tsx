@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
-import PhotoSwipeLightbox from 'photoswipe/lightbox';
-import PhotoSwipe from 'photoswipe';
-import 'photoswipe/style.css';
 import { GalleryHeader } from './gallery-header';
+// react-image-gallery (viewer replacement)
+const ImageGallery = lazy(() => import('react-image-gallery'));
+import 'react-image-gallery/styles/css/image-gallery.css';
 import { PhotoCard } from './photocard';
 import { DeleteButton } from './delete-button';
 import DocumentViewer from './document-viewer';
@@ -188,8 +188,6 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
   const [drawerHeight, setDrawerHeight] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   
-  const lightboxRef = useRef<PhotoSwipeLightbox | null>(null);
-  const pswpInstanceRef = useRef<PhotoSwipe | null>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
   const startYRef = useRef(0);
   const startHeightRef = useRef(0);
@@ -198,6 +196,126 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
   const lastTimeRef = useRef(0);
   const openDrawerRef = useRef<(() => void) | null>(null);
   const deleteButtonRef = useRef<HTMLButtonElement | null>(null);
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+  const overlaySwipeRef = useRef<{ startY: number; startX: number; startTime: number }>({ startY: 0, startX: 0, startTime: 0 });
+
+  // image-gallery state (react-image-gallery)
+  const [imageGalleryOpen, setImageGalleryOpen] = useState(false);
+  const [galleryStartIndex, setGalleryStartIndex] = useState(0);
+
+  // pinch / zoom / pan state for modal viewer
+  const scaleRef = useRef<number>(1);
+  const pinchRef = useRef<{ active: boolean; initialDistance: number; initialScale: number }>({ active: false, initialDistance: 0, initialScale: 1 });
+  const lastTapRef = useRef<number>(0);
+  const translateRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const panRef = useRef<{ active: boolean; startX: number; startY: number; lastX: number; lastY: number }>({ active: false, startX: 0, startY: 0, lastX: 0, lastY: 0 });
+
+  const getActiveImageElement = (): HTMLElement | null => {
+    // prefer slide with matching data-index (react-image-gallery keeps slides in DOM)
+    const slides = Array.from(document.querySelectorAll('.image-gallery-slide')) as HTMLElement[];
+    if (slides.length > 0) {
+      const byIndex = slides.find(s => String(s.getAttribute('data-index')) === String(galleryStartIndex));
+      if (byIndex) {
+        const el = byIndex.querySelector('.image-gallery-image') as HTMLElement | null;
+        if (el) return el;
+      }
+
+      // fallback: find slide that's not aria-hidden
+      const visible = slides.find(s => s.getAttribute('aria-hidden') === 'false' || !s.hasAttribute('aria-hidden'));
+      if (visible) {
+        const el = visible.querySelector('.image-gallery-image') as HTMLElement | null;
+        if (el) return el;
+      }
+    }
+
+    // fallback: match image src to current galleryItems index
+    const expected = galleryItems?.[galleryStartIndex]?.original;
+    if (expected) {
+      const imgs = Array.from(document.querySelectorAll('.image-gallery-image')) as HTMLImageElement[];
+      const bySrc = imgs.find(i => (i.currentSrc || i.src || '').includes(expected));
+      if (bySrc) return bySrc as HTMLElement;
+    }
+
+    // last resort: first visible image element
+    const imgs = Array.from(document.querySelectorAll('.image-gallery-image')) as HTMLElement[];
+    const visibleImg = imgs.find(i => i.offsetParent !== null && window.getComputedStyle(i).visibility !== 'hidden');
+    return visibleImg || imgs[0] || null;
+  };
+
+  const setImageTransform = () => {
+    const activeImg = getActiveImageElement();
+    // clear stale transforms on other images so only the active one shows transform
+    const allImgs = Array.from(document.querySelectorAll('.image-gallery-image')) as HTMLElement[];
+    for (const el of allImgs) {
+      if (el !== activeImg) {
+        el.style.transform = '';
+        el.style.transition = '';
+        el.style.willChange = '';
+        el.style.touchAction = '';
+      }
+    }
+
+    if (!activeImg) return;
+    const tx = Math.round(translateRef.current.x);
+    const ty = Math.round(translateRef.current.y);
+    activeImg.style.transition = scaleRef.current === 1 ? 'transform 160ms ease' : 'none';
+    activeImg.style.transform = `translate(${tx}px, ${ty}px) scale(${scaleRef.current})`;
+    activeImg.style.transformOrigin = 'center center';
+    activeImg.style.willChange = 'transform';
+    activeImg.style.touchAction = scaleRef.current > 1 ? 'none' : 'auto';
+  };
+
+  const clampTranslate = (x: number, y: number, scale = scaleRef.current) => {
+    const img = getActiveImageElement();
+    if (!img) return { x, y };
+    const rect = img.getBoundingClientRect();
+    const viewportW = Math.min(window.innerWidth, rect.width);
+    const viewportH = Math.min(window.innerHeight, rect.height);
+    const maxX = Math.max(0, (rect.width * scale - rect.width) / 2 + Math.abs((rect.width - viewportW) / 2));
+    const maxY = Math.max(0, (rect.height * scale - rect.height) / 2 + Math.abs((rect.height - viewportH) / 2));
+    return {
+      x: Math.max(-maxX, Math.min(maxX, x)),
+      y: Math.max(-maxY, Math.min(maxY, y)),
+    };
+  };
+
+  const applyScale = (s: number, focalPoint?: { clientX: number; clientY: number } | null) => {
+    const newScale = Math.max(1, Math.min(4, s));
+
+    // if focalPoint is provided (double-tap), adjust translate so the tapped point remains under the finger
+    if (focalPoint) {
+      const img = getActiveImageElement();
+      if (img) {
+        const rect = img.getBoundingClientRect();
+        const offsetX = focalPoint.clientX - rect.left;
+        const offsetY = focalPoint.clientY - rect.top;
+        const relX = offsetX - rect.width / 2;
+        const relY = offsetY - rect.height / 2;
+        // approximate translation delta to keep focal point stable
+        const factor = (newScale / Math.max(1, scaleRef.current)) - 1;
+        translateRef.current.x = translateRef.current.x - relX * factor;
+        translateRef.current.y = translateRef.current.y - relY * factor;
+        const clamped = clampTranslate(translateRef.current.x, translateRef.current.y, newScale);
+        translateRef.current.x = clamped.x;
+        translateRef.current.y = clamped.y;
+      }
+    }
+
+    scaleRef.current = newScale;
+    if (scaleRef.current <= 1.01) {
+      // reset translate when fully zoomed out
+      translateRef.current.x = 0;
+      translateRef.current.y = 0;
+    }
+    setImageTransform();
+  };
+
+  const resetScale = () => {
+    scaleRef.current = 1;
+    translateRef.current.x = 0;
+    translateRef.current.y = 0;
+    setImageTransform();
+  };
 
   // Store drawer open function
   openDrawerRef.current = () => {
@@ -227,192 +345,137 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
   const filteredDocuments = filterFiles(documents);
   const filteredAudios = filterFiles(audios);
 
-  // Initialize PhotoSwipe
+  // build items for react-image-gallery (Photos tab viewer)
+  const galleryItems = filteredPhotos.map(p => ({ original: p.path, thumbnail: p.path, originalAlt: p['File Name'] }));
+
+  // keep a live ref of the current filteredPhotos so modal handlers see the latest list
+  const latestPhotosRef = useRef(filteredPhotos);
+  useEffect(() => { latestPhotosRef.current = filteredPhotos; }, [filteredPhotos]);
+
+  // event listener to open react-image-gallery from PhotoCard
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    const handler = (ev: any) => {
+      const idx = Number(ev?.detail?.index || 0);
+      setGalleryStartIndex(idx);
+      setImageGalleryOpen(true);
+      resetScale();
+    };
+    window.addEventListener('open-image-gallery', handler);
+    return () => window.removeEventListener('open-image-gallery', handler);
+  }, []);
 
-    const lightbox = new PhotoSwipeLightbox({
-      gallery: '#photoswipe-gallery',
-      children: 'a',
-      pswpModule: PhotoSwipe,
-      bgOpacity: 1,
-      showHideAnimationType: 'zoom',
-      closeOnVerticalDrag: true,
-      pinchToClose: true,
-      padding: { top: 0, bottom: 150, left: 0, right: 0 },
-      imageClickAction: 'zoom',
-      tapAction: 'toggle-controls',
-      doubleTapAction: 'zoom',
-      zoom: true,
-      maxZoomLevel: 4,
-    });
+  // Non-passive touch handlers for overlay: pinch/pan and swipe-down-to-close
+  useEffect(() => {
+    if (!overlayRef.current || !imageGalleryOpen) return;
+    const el = overlayRef.current;
 
-    // Add custom UI elements
-    lightbox.on('uiRegister', () => {
-      if (!lightbox.pswp || !lightbox.pswp.ui) return;
+    const touchStart = (ev: TouchEvent) => {
+      if (!ev.touches || ev.touches.length === 0) return;
+      const t = ev.touches[0];
+      overlaySwipeRef.current.startY = t.clientY;
+      overlaySwipeRef.current.startX = t.clientX;
+      overlaySwipeRef.current.startTime = Date.now();
 
-      // Download button
-      lightbox.pswp.ui.registerElement({
-        name: 'download-button',
-        order: 8,
-        isButton: true,
-        html: {
-          isCustomSVG: true,
-          inner: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/><polyline points="7 10 12 15 17 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
-          outlineID: 'pswp__icn-download',
-        },
-        onClick: async (e: Event, el: HTMLElement, pswp: any) => {
-          e.preventDefault();
-          e.stopPropagation();
-          const currSlide = pswp.currSlide;
-          if (currSlide && currSlide.data.element) {
-            const imageUrl = currSlide.data.element.href;
-            const filename = currSlide.data.element.dataset.caption?.split('|||')[0] || 'image';
-            
-            try {
-              const response = await fetch(imageUrl);
-              const blob = await response.blob();
-              const url = window.URL.createObjectURL(blob);
-              const link = document.createElement('a');
-              link.href = url;
-              link.download = filename;
-              document.body.appendChild(link);
-              link.click();
-              document.body.removeChild(link);
-              window.URL.revokeObjectURL(url);
-            } catch (error) {
-              console.error('Download failed:', error);
-            }
-          }
-        },
-      });
+      if (ev.touches.length === 2) {
+        pinchRef.current.active = true;
+        pinchRef.current.initialDistance = Math.hypot(ev.touches[0].clientX - ev.touches[1].clientX, ev.touches[0].clientY - ev.touches[1].clientY);
+        pinchRef.current.initialScale = scaleRef.current || 1;
+      } else if (ev.touches.length === 1 && scaleRef.current > 1) {
+        panRef.current.active = true;
+        panRef.current.startX = ev.touches[0].clientX;
+        panRef.current.startY = ev.touches[0].clientY;
+        panRef.current.lastX = translateRef.current.x;
+        panRef.current.lastY = translateRef.current.y;
+      }
+    };
 
-      // Delete button (only for admin)
-      if (isAdmin) {
-        lightbox.pswp.ui.registerElement({
-          name: 'delete-button',
-          order: 9,
-          isButton: true,
-          html: {
-            isCustomSVG: true,
-            inner: '<path d="M3 6h18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/><line x1="10" y1="11" x2="10" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="14" y1="11" x2="14" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
-            outlineID: 'pswp__icn-delete',
-          },
-          onClick: (e: Event, el: HTMLElement, pswp: any) => {
-            e.preventDefault();
-            e.stopPropagation();
-            
-            // Trigger delete without closing PhotoSwipe
-            setTimeout(() => {
-              const deleteBtns = document.querySelectorAll('button');
-              for (const btn of deleteBtns) {
-                if (btn.className.includes('destructive')) {
-                  btn.click();
-                  break;
-                }
-              }
-            }, 10);
-            return false;
-          },
-        });
+    const touchMove = (ev: TouchEvent) => {
+      // pinch zoom
+      if (pinchRef.current.active && ev.touches && ev.touches.length === 2) {
+        ev.preventDefault();
+        const d = Math.hypot(ev.touches[0].clientX - ev.touches[1].clientX, ev.touches[0].clientY - ev.touches[1].clientY);
+        const newScale = pinchRef.current.initialScale * (d / (pinchRef.current.initialDistance || 1));
+        applyScale(newScale);
+        return;
       }
 
-      // Caption showing filename and limited description - tap to open drawer
-      lightbox.pswp.ui.registerElement({
-        name: 'custom-caption',
-        order: 9,
-        isButton: false,
-        appendTo: 'wrapper',
-        html: '<div class="pswp-caption-content"></div>',
-        onInit: (el: HTMLElement, pswp: any) => {
-          // Force visibility with important styles
-          el.setAttribute('style', 'position: absolute !important; bottom: 0 !important; left: 0 !important; right: 0 !important; width: 100% !important; z-index: 99999 !important; pointer-events: auto !important; display: block !important;');
-          
-          // Single click handler on the container element
-          const handleClick = (e: any) => {
-            e.preventDefault();
-            e.stopPropagation();
-            console.log('Caption clicked!'); // Debug
-            setDrawerOpen(true);
-          };
-          
-          el.addEventListener('click', handleClick, false);
-          el.addEventListener('touchend', handleClick, false);
-          
-          const updateCaption = () => {
-            const currSlide = pswp.currSlide;
-            if (!currSlide || !currSlide.data.element) {
-              el.innerHTML = '';
-              return;
-            }
-            
-            const caption = currSlide.data.element.dataset.caption || '';
-            if (!caption) {
-              el.innerHTML = '';
-              return;
-            }
-            
-            const filename = caption.split('|||')[0];
-            const fullDesc = caption.split('|||')[1] || '';
-            const shortDesc = fullDesc.length > 80 ? fullDesc.substring(0, 80) + '...' : fullDesc;
-            
-            el.innerHTML = `<div class="caption-clickable" style="background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.8) 70%, transparent 100%); padding: 16px 12px 24px; text-align: center; cursor: pointer; min-height: 100px; display: flex; flex-direction: column; justify-content: flex-end; width: 100%;">
-              <div style="color: white; font-size: clamp(14px, 4vw, 18px); font-weight: 700; margin-bottom: 8px; text-shadow: 0 2px 8px rgba(0,0,0,0.5); word-wrap: break-word; overflow-wrap: break-word; max-width: 100%; padding: 0 8px;">${filename}</div>
-              ${shortDesc ? `<div style="color: rgba(255,255,255,0.9); font-size: clamp(12px, 3.5vw, 15px); margin-bottom: 12px; text-shadow: 0 1px 4px rgba(0,0,0,0.5); word-wrap: break-word; overflow-wrap: break-word; max-width: 100%; padding: 0 8px; line-height: 1.4;">${shortDesc}</div>` : ''}
-              <div style="display: flex; align-items: center; justify-content: center; gap: 6px; color: rgba(255,255,255,0.8); font-size: clamp(10px, 3vw, 13px); margin-top: 8px;">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M18 15l-6-6-6 6"/>
-                </svg>
-                <span style="text-transform: uppercase; letter-spacing: 0.8px; font-weight: 700;">TAP FOR DETAILS</span>
-              </div>
-            </div>`;
-          };
-          
-          pswp.on('change', updateCaption);
-          pswp.on('afterInit', updateCaption);
-          setTimeout(updateCaption, 100);
-        },
-      });
-    });
-
-    // Track current slide to update drawer content
-    lightbox.on('change', () => {
-      if (!lightbox.pswp) return;
-      const currentIndex = lightbox.pswp.currIndex;
-      const currentItem = filteredPhotos[currentIndex];
-      if (currentItem) {
-        setSelectedFile(currentItem);
-        setCurrentFileName(currentItem['File Name']);
+      // pan while zoomed
+      if (panRef.current.active && ev.touches && ev.touches.length === 1) {
+        ev.preventDefault();
+        const dx = ev.touches[0].clientX - panRef.current.startX;
+        const dy = ev.touches[0].clientY - panRef.current.startY;
+        const nx = panRef.current.lastX + dx;
+        const ny = panRef.current.lastY + dy;
+        const clamped = clampTranslate(nx, ny, scaleRef.current);
+        translateRef.current.x = clamped.x;
+        translateRef.current.y = clamped.y;
+        setImageTransform();
+        return;
       }
-    });
 
-    // Set initial file when opened
-    lightbox.on('afterInit', () => {
-      if (!lightbox.pswp) return;
-      pswpInstanceRef.current = lightbox.pswp;
-      const currentIndex = lightbox.pswp.currIndex;
-      const currentItem = filteredPhotos[currentIndex];
-      if (currentItem) {
-        setSelectedFile(currentItem);
-        setCurrentFileName(currentItem['File Name']);
+      // swipe down to close when not zoomed
+      if (!pinchRef.current.active && !panRef.current.active && ev.touches && ev.touches.length === 1 && scaleRef.current <= 1.01) {
+        const dy = ev.touches[0].clientY - overlaySwipeRef.current.startY;
+        if (dy > 0) {
+          ev.preventDefault();
+          // visual feedback while dragging down
+          el.style.transform = `translateY(${dy}px)`;
+          const opacity = Math.max(0, 1 - Math.min(0.9, dy / 400));
+          el.style.background = `rgba(0,0,0,${opacity})`;
+        }
       }
-    });
+    };
 
-    // Close drawer when PhotoSwipe closes
-    lightbox.on('close', () => {
-      setDrawerOpen(false);
-      setSelectedFile(null);
-      pswpInstanceRef.current = null;
-    });
+    const touchEnd = (ev: TouchEvent) => {
+      if (pinchRef.current.active) {
+        pinchRef.current.active = false;
+        if (scaleRef.current <= 1.01) resetScale();
+      }
+      if (panRef.current.active) {
+        panRef.current.active = false;
+        if (scaleRef.current <= 1.01) resetScale();
+      }
 
-    lightbox.init();
-    lightboxRef.current = lightbox;
+      // handle swipe-to-close
+      const dy = (ev.changedTouches && ev.changedTouches[0]) ? ev.changedTouches[0].clientY - overlaySwipeRef.current.startY : 0;
+      const dt = Date.now() - overlaySwipeRef.current.startTime;
+      const velocity = dt > 0 ? dy / dt : 0;
+      if (scaleRef.current <= 1.01 && (dy > 140 || velocity > 0.6)) {
+        // animate close and then reset
+        el.style.transition = 'transform 200ms ease, background 200ms ease';
+        el.style.transform = `translateY(100vh)`;
+        setTimeout(() => {
+          resetScale();
+          setImageGalleryOpen(false);
+          el.style.transition = '';
+          el.style.transform = '';
+          el.style.background = '';
+        }, 200);
+      } else {
+        // reset overlay transform
+        el.style.transition = 'transform 180ms ease, background 180ms ease';
+        el.style.transform = '';
+        el.style.background = '';
+        setTimeout(() => {
+          if (el) el.style.transition = '';
+        }, 200);
+      }
+    };
+
+    // use non-passive where we may call preventDefault to avoid console warnings
+    el.addEventListener('touchstart', touchStart, { passive: false });
+    el.addEventListener('touchmove', touchMove, { passive: false });
+    el.addEventListener('touchend', touchEnd, { passive: false });
 
     return () => {
-      lightbox.destroy();
-      lightboxRef.current = null;
+      el.removeEventListener('touchstart', touchStart);
+      el.removeEventListener('touchmove', touchMove);
+      el.removeEventListener('touchend', touchEnd);
+      if (el) { el.style.transform = ''; el.style.background = ''; el.style.transition = ''; }
     };
-  }, [filteredPhotos]);
+  }, [imageGalleryOpen]);
+
+  // PhotoSwipe removed — react-image-gallery is used for the Photos viewer
 
   // Handle drawer drag gestures
   const handleDragStart = (clientY: number) => {
@@ -716,6 +779,27 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
     }
   };
 
+  // Download image helper for react-image-gallery modal
+  const downloadImage = async (url: string | undefined, fileName?: string) => {
+    if (!url) return;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Network response was not ok');
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = fileName || 'image';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      console.error('download failed, opening in new tab:', err);
+      window.open(url, '_blank', 'noopener');
+    }
+  };
+
   // cleanup when component unmounts
   useEffect(() => {
     return () => {
@@ -746,9 +830,8 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
             </TabsList>
           </div>
 
-          <TabsContent value="photos" className="mt-0">
+          <TabsContent value="photos" id="photos" className="mt-0">
             <div 
-              id="photoswipe-gallery" 
               className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4"
             >
               {filteredPhotos.map((photo, index) => (
@@ -912,9 +995,131 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
             )}
           </TabsContent>
         </Tabs>
+
+        {/* React Image Gallery modal (replaces PhotoSwipe for Photos) */}
+        {imageGalleryOpen && (
+          <div className="fixed inset-0 z-[99999999] bg-black/90 flex items-center justify-center px-3 sm:px-6 py-4 sm:py-6"
+               onTouchStart={(e) => {
+                 // Pinch start or double-tap detection *and* pan start when already zoomed
+                 if (e.touches && e.touches.length === 2) {
+                   pinchRef.current.active = true;
+                   pinchRef.current.initialDistance = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+                   pinchRef.current.initialScale = scaleRef.current || 1;
+                 } else if (e.touches && e.touches.length === 1) {
+                   const touch = e.touches[0];
+
+                   // double-tap -> zoom at touch point
+                   const now = Date.now();
+                   if (now - lastTapRef.current < 300) {
+                     applyScale(scaleRef.current > 1.05 ? 1 : 2, { clientX: touch.clientX, clientY: touch.clientY });
+                     panRef.current.active = false;
+                     lastTapRef.current = 0;
+                     return;
+                   }
+                   lastTapRef.current = now;
+
+                   // start panning if already zoomed
+                   if (scaleRef.current > 1) {
+                     panRef.current.active = true;
+                     panRef.current.startX = touch.clientX;
+                     panRef.current.startY = touch.clientY;
+                     panRef.current.lastX = translateRef.current.x;
+                     panRef.current.lastY = translateRef.current.y;
+                   }
+                 }
+               }}
+               onTouchMove={(e) => {
+                 // pinch zoom
+                 if (pinchRef.current.active && e.touches && e.touches.length === 2) {
+                   e.preventDefault();
+                   const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+                   const newScale = pinchRef.current.initialScale * (d / (pinchRef.current.initialDistance || 1));
+                   applyScale(newScale);
+                   return;
+                 }
+
+                 // pan while zoomed
+                 if (panRef.current.active && e.touches && e.touches.length === 1) {
+                   e.preventDefault();
+                   const dx = e.touches[0].clientX - panRef.current.startX;
+                   const dy = e.touches[0].clientY - panRef.current.startY;
+                   const nx = panRef.current.lastX + dx;
+                   const ny = panRef.current.lastY + dy;
+                   const clamped = clampTranslate(nx, ny, scaleRef.current);
+                   translateRef.current.x = clamped.x;
+                   translateRef.current.y = clamped.y;
+                   setImageTransform();
+                   return;
+                 }
+               }}
+               onTouchEnd={(e) => {
+                 if (pinchRef.current.active) {
+                   pinchRef.current.active = false;
+                   if (scaleRef.current <= 1.01) resetScale();
+                 }
+                 if (panRef.current.active) {
+                   panRef.current.active = false;
+                   // if fully zoomed out after interaction, clear translate
+                   if (scaleRef.current <= 1.01) resetScale();
+                 }
+               }}
+          >
+            <div className="absolute top-3 left-3 text-white text-sm font-medium bg-black/30 px-2 py-1 rounded">{galleryStartIndex + 1} / {galleryItems.length}</div>
+
+            {/* top-right header controls placed outside the image frame */}
+            <div className="absolute top-3 right-3 z-[99999999] flex items-center gap-2">
+              {/* download hidden for non-logged / anonymous users */}
+              {isAdmin && (
+                <Button variant="ghost" size="icon" className="text-white" onClick={() => downloadImage(filteredPhotos[galleryStartIndex]?.path, filteredPhotos[galleryStartIndex]?.['File Name'])}>
+                  <Download className="w-4 h-4" />
+                </Button>
+              )}
+
+              {isAdmin && (
+                <div onClick={(e) => e.stopPropagation()}>
+                  <DeleteButton fileName={filteredPhotos[galleryStartIndex]?.storedName ?? filteredPhotos[galleryStartIndex]?.['File Name']} type="images" />
+                </div>
+              )}
+
+              <Button variant="ghost" size="icon" className="text-white" onClick={() => { resetScale(); setImageGalleryOpen(false); }}>
+                <X className="w-5 h-5" />
+              </Button>
+            </div>
+
+            <div ref={overlayRef} className="w-full max-w-none sm:max-w-6xl mx-auto relative">
+              <Suspense fallback={<div className="text-white text-center py-8">Loading viewer…</div>}>
+                <ImageGallery
+                  items={galleryItems}
+                  startIndex={galleryStartIndex}
+                  showThumbnails={false}
+                  showPlayButton={false}
+                  showFullscreenButton={true}
+                  showBullets={false}
+                  showIndex={false} /* use custom top-left counter */
+                  showNav={true}
+                  infinite={false} /* disable wrap-around */
+                  onSlide={(i: number) => { setGalleryStartIndex(i); resetScale(); /* ensure new active slide receives transforms */ requestAnimationFrame(() => setImageTransform()); }}
+                />
+              </Suspense>
+
+              {/* (removed inner caption) — caption is anchored at modal bottom now */}
+            </div>
+
+            {/* bottom caption — fixed to modal bottom (single visible caption) */}
+            <div className="absolute left-0 right-0 bottom-6 px-4 sm:px-0 text-center text-white">
+              <div className="font-semibold">{filteredPhotos[galleryStartIndex]?.['File Name']}</div>
+              {filteredPhotos[galleryStartIndex]?.['Description'] && (
+                <div className="text-sm text-white/80 cursor-pointer mt-2 max-w-3xl mx-auto" onClick={() => { setSelectedFile(filteredPhotos[galleryStartIndex] ?? null); setDrawerOpen(true); }}>
+                  {filteredPhotos[galleryStartIndex]?.['Description']}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
       </main>
 
-      {/* Custom Drawer for PhotoSwipe */}
+      {/* Drawer for image viewer */}
       {drawerOpen && selectedFile && (
         <>
           {/* Backdrop overlay - click to close */}
@@ -1008,50 +1213,33 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
         </>
       )}
 
-      {/* Hidden delete button for PhotoSwipe - triggered by toolbar */}
+      {/* Hidden delete button for modal viewer - triggered by toolbar */}
       {isAdmin && currentFileName && (
         <div style={{ position: 'absolute', top: 0, left: 0, opacity: 0, pointerEvents: 'all', zIndex: 99999999 }}>
           <DeleteButton fileName={selectedFile?.storedName ?? currentFileName} type="images" />
         </div>
       )}
 
-      {/* Custom PhotoSwipe Styles */}
+      {/* Global overrides for react-image-gallery modal */}
       <style jsx global>{`
-        .pswp {
-          z-index: 999999 !important;
+        .image-gallery-slide { display: flex !important; align-items: center !important; justify-content: center !important; }
+        /* make image use the full available viewport area (width OR height) */
+        .image-gallery-image { width: auto !important; height: auto !important; max-width: calc(100vw - 48px) !important; max-height: calc(100vh - 140px) !important; object-fit: contain !important; margin: 0 auto !important; }
+        .image-gallery-index { display: none !important; }
+        @media (max-width: 640px) {
+          .image-gallery-left-nav, .image-gallery-right-nav { display: none !important; }
+          .image-gallery-image { max-height: calc(100vh - 120px) !important; max-width: calc(100vw - 32px) !important; }
         }
-        
-        [role="alertdialog"] {
-          z-index: 9999999 !important;
-        }
-        
-        .pswp__custom-caption {
-          z-index: 1 !important;
-          pointer-events: none;
-        }
-        
-        .pswp__img {
+
+        /* Fullscreen: make image truly fill viewport so pinch/pan behaves across full-screen */
+        :fullscreen .image-gallery-image,
+        :-webkit-full-screen .image-gallery-image,
+        .image-gallery.fullscreen .image-gallery-image {
+          max-width: 100vw !important;
+          max-height: 100vh !important;
           width: auto !important;
           height: auto !important;
-          max-width: 100% !important;
-          max-height: calc(100vh - 150px) !important;
-          object-fit: contain !important;
-          position: static !important;
-          transform: none !important;
-        }
-        
-        .pswp__zoom-wrap {
-          width: 100% !important;
-          height: 100% !important;
-          display: flex !important;
-          align-items: center !important;
-          justify-content: center !important;
-        }
-        
-        .pswp__container {
-          display: flex !important;
-          align-items: center !important;
-          justify-content: center !important;
+          margin: 0 !important;
         }
       `}</style>
     </div>

@@ -103,17 +103,26 @@ export function PhotoCard({ photo, index, isAdmin }: PhotoCardProps) {
             />
           )}
 
-          {/* PhotoSwipe clickable overlay */}
+          {/* Clickable overlay — opens modal viewer */}
           <a
             href={photo.path}
             data-caption={`${photo['File Name']}|||${photo['Description'] || ''}`}
+            data-index={index}
             className="absolute inset-0 z-10"
             aria-label={`View ${photo['File Name']}`}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation(); // prevent parent handlers
+              // dispatch event for GalleryClient to open react-image-gallery
+              try {
+                const ev = new CustomEvent('open-image-gallery', { detail: { index } });
+                window.dispatchEvent(ev);
+              } catch (err) {
+                /* ignore */
+              }
+            }}
           >
           </a>
-
-          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
-          
           <div 
             className="absolute top-2 right-2 flex items-center gap-1 opacity-0 md:group-hover:opacity-100 transition-opacity duration-300 pointer-events-none md:pointer-events-auto z-20" 
             onClick={(e) => e.stopPropagation()}

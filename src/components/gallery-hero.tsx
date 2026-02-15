@@ -20,13 +20,13 @@ export default function GalleryHero() {
 
         <div className="grid grid-cols-1 sm:grid-cols-12 gap-6 items-center">
           <div className="sm:col-span-8">
-            <h2 className="text-2xl sm:text-3xl md:text-4xl font-extrabold leading-tight text-foreground">WebGallery — beautiful, fast, secure</h2>
+            <h2 className="text-2xl sm:text-3xl md:text-4xl font-extrabold leading-tight text-foreground">eDocket — beautiful, fast, secure</h2>
             <p className="mt-3 text-sm sm:text-base text-muted-foreground max-w-2xl">A mobile‑first gallery with photographers in mind — instant previews, secure uploads, and buttery smooth micro‑interactions.</p>
 
             <div className="mt-5 flex flex-wrap gap-3 items-center">
               <SmartUploadDialog />
 
-              <a href="#pswp-gallery" className="btn-gradient-shine inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-[#667eea] to-[#764ba2] text-white font-semibold shadow-md hover:scale-[1.02] transition-transform">
+              <a href="#photos" className="btn-gradient-shine inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-[#667eea] to-[#764ba2] text-white font-semibold shadow-md hover:scale-[1.02] transition-transform">
                 Explore gallery
               </a>
 
