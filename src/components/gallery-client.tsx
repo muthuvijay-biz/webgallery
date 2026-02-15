@@ -220,7 +220,7 @@ export function GalleryClient({
     setDrawerOpen(false);
   }, []);
 
-  // Lightbox is provided via `lightboxRef` below (separate component). Cleanup handled there.
+  // PhotoSwipe is initialized below (desktop lightbox).
 
   // ensure no focused descendant remains inside the drawer when it is hidden
   useEffect(() => {
@@ -400,7 +400,7 @@ export function GalleryClient({
                         setCurrentIndex(idx);
                         setDrawerOpen(true);
                         setViewerOpen(false); // ensure full viewer isn't active
-                        try { lightboxRef.current?.close?.(); } catch (e) {}
+                        try { pswpRef.current?.close?.(); } catch (e) {}
                         return;
                       }
 
