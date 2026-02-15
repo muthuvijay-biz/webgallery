@@ -628,7 +628,7 @@ export function GalleryClient({
           {/* Bottom Description - visible when viewer overlay OR drawer is open */}
           <div 
             className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/95 to-transparent p-4 pb-6 z-20 cursor-pointer"
-            onClick={() => { setDrawerOpen((s) => { const next = !s; if (next) setViewerOpen(false); return next; }); }}
+            onClick={() => setDrawerOpen((s) => !s)}
             onTouchStart={(e) => {
               (window as any).overlayStartY = e.touches[0].clientY;
             }}
