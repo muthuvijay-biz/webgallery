@@ -17,7 +17,7 @@ export function UploadStatusPanel() {
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showErrorModal, setShowErrorModal] = useState(false);
   const [successCount, setSuccessCount] = useState(0);
-  const [errorFiles, setErrorFiles] = useState<string[]>([]);
+  const [errorFiles, setErrorFiles] = useState<Array<{ name: string; message?: string }>>([]);
 
   useEffect(() => {
     if (uploadingFiles.length === 0) return;
@@ -36,7 +36,7 @@ export function UploadStatusPanel() {
       }
 
       if (failedFiles.length > 0) {
-        setErrorFiles(failedFiles.map((f) => f.file.name));
+        setErrorFiles(failedFiles.map((f) => ({ name: String((f.file as any)?.name || 'unknown'), message: f.message })));
         setShowErrorModal(true);
       }
     }
@@ -103,12 +103,22 @@ export function UploadStatusPanel() {
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-48 overflow-y-auto">
-            <ul className="list-disc list-inside text-sm space-y-1">
-              {errorFiles.map((fileName, idx) => (
-                <li key={idx} className="text-destructive">{fileName}</li>
+            <ul className="list-disc list-inside text-sm space-y-2">
+              {errorFiles.map((f, idx) => (
+                <li key={idx} className="text-destructive">
+                  <div className="font-semibold">{f.name}</div>
+                  {f.message && <div className="text-xs text-muted-foreground">{f.message}</div>}
+                </li>
               ))}
             </ul>
           </div>
+
+          {/* If any failure looks like a size/hosting limit, show a quick tip */}
+          {errorFiles.some(ef => /too large|server limit|content too large|rejected by server|request entity too large/i.test(String(ef.message))) && (
+            <div className="mt-3 px-4 text-sm text-muted-foreground">
+              Tip: large video files are often rejected by hosting (413). Upload big videos to YouTube/Google Drive and add them via <strong>Upload → Link</strong> (choose external link) to include them in the gallery.
+            </div>
+          )}
           <div className="flex justify-center mt-4">
             <Button onClick={handleCloseError} variant="destructive" className="w-full">
               Close

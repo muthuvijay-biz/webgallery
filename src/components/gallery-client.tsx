@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import PhotoSwipeLightbox from 'photoswipe/lightbox';
 import PhotoSwipe from 'photoswipe';
 import 'photoswipe/style.css';
@@ -11,7 +12,7 @@ import DocumentViewer from './document-viewer';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import type { FileMetadata } from '@/lib/files';
-import { Info, X, GripHorizontal, Play, Pause, Volume2, VolumeX } from 'lucide-react';
+import { Info, X, GripHorizontal, Play, Pause, Volume2, VolumeX, Download } from 'lucide-react';
 
 interface GalleryClientProps {
   photos: FileMetadata[];
@@ -49,8 +50,12 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
     setDrawerOpen(true);
   };
 
+  const router = useRouter();
+
   const handleLogout = () => {
-    window.location.href = '/login';
+    // clear client-side admin flag and navigate to login
+    try { localStorage.removeItem('is_admin'); } catch (e) { /* ignore */ }
+    router.replace('/login');
   };
 
   // Filter files based on search query
@@ -86,7 +91,6 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
       doubleTapAction: 'zoom',
       zoom: true,
       maxZoomLevel: 4,
-      minZoomLevel: 1,
     });
 
     // Add custom UI elements
@@ -356,20 +360,150 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
     }
   }, [drawerOpen]);
 
-  // Audio player functions
-  const playAudio = (audioPath: string) => {
-    if (currentAudio) {
-      currentAudio.pause();
+  // Ensure images render correctly when loading the page directly.
+  // Some browsers / next/image lazy-loading won't trigger until a layout
+  // change occurs — dispatching a resize forces intersection observers
+  // to recalc so photos appear without manually switching tabs.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (activeTab !== 'photos') return;
+    if (!filteredPhotos || filteredPhotos.length === 0) return;
+
+    const timer = window.setTimeout(() => {
+      // trigger layout / IO callbacks
+      window.dispatchEvent(new Event('resize'));
+    }, 60);
+
+    return () => window.clearTimeout(timer);
+  }, [filteredPhotos.length, activeTab]);
+
+  // Audio player functions + per-item playback state, seek and visualizer
+  const [playingPath, setPlayingPath] = useState<string | null>(null);
+  const [audioCurrentTime, setAudioCurrentTime] = useState(0);
+  const [audioDuration, setAudioDuration] = useState(0);
+
+  // Visualizer refs
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const animationIdRef = useRef<number | null>(null);
+  const canvasRefs = useRef<Record<string, HTMLCanvasElement | null>>({});
+
+  const stopVisualizer = () => {
+    if (animationIdRef.current) {
+      cancelAnimationFrame(animationIdRef.current);
+      animationIdRef.current = null;
     }
+    if (sourceRef.current) {
+      try { sourceRef.current.disconnect(); } catch (e) {}
+      sourceRef.current = null;
+    }
+    if (analyserRef.current) {
+      try { analyserRef.current.disconnect(); } catch (e) {}
+      analyserRef.current = null;
+    }
+  };
+
+  const startVisualizer = (audioEl: HTMLAudioElement, key: string) => {
+    stopVisualizer();
+    try {
+      const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextCtor) return;
+      if (!audioCtxRef.current) audioCtxRef.current = new AudioContextCtor();
+      const ctx = audioCtxRef.current;
+      const src = ctx.createMediaElementSource(audioEl);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      src.connect(analyser);
+      analyser.connect(ctx.destination);
+      sourceRef.current = src;
+      analyserRef.current = analyser;
+
+      const canvas = canvasRefs.current[key];
+      if (!canvas) return;
+      const dpr = window.devicePixelRatio || 1;
+      const ctx2d = canvas.getContext('2d');
+      if (!ctx2d) return;
+
+      const render = () => {
+        if (!analyserRef.current) return;
+        const bufferLength = analyserRef.current.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+        analyserRef.current.getByteFrequencyData(dataArray);
+
+        const width = canvas.width / dpr;
+        const height = canvas.height / dpr;
+        ctx2d.clearRect(0, 0, width, height);
+
+        const barWidth = Math.max(2, Math.floor(width / (bufferLength / 2)));
+        let x = 0;
+        for (let i = 0; i < bufferLength; i += 2) {
+          const v = dataArray[i] / 255;
+          const barHeight = v * height;
+          ctx2d.fillStyle = 'rgba(99,102,241,0.9)';
+          ctx2d.fillRect(x, height - barHeight, barWidth, barHeight);
+          x += barWidth + 1;
+        }
+
+        animationIdRef.current = requestAnimationFrame(render);
+      };
+
+      const resize = () => {
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+      };
+      resize();
+      render();
+
+      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    } catch (err) {
+      console.error('visualizer start error', err);
+    }
+  };
+
+  const playAudio = (audioPath: string) => {
+    // ensure only one audio plays at once
+    if (currentAudio) {
+      try { currentAudio.pause(); } catch (e) {}
+    }
+
     const audio = new Audio(audioPath);
+    audio.crossOrigin = 'anonymous';
     audio.volume = isMuted ? 0 : 1;
-    audio.play();
+
+    const onLoaded = () => setAudioDuration(audio.duration || 0);
+    const onTime = () => setAudioCurrentTime(audio.currentTime || 0);
+    const onEnded = () => {
+      setIsPlaying(false);
+      setPlayingPath(null);
+      setAudioCurrentTime(0);
+      setAudioDuration(0);
+      stopVisualizer();
+    };
+
+    audio.addEventListener('loadedmetadata', onLoaded);
+    audio.addEventListener('timeupdate', onTime);
+    audio.addEventListener('ended', onEnded);
+
+    audio.play().catch(() => {});
+
     setCurrentAudio(audio);
+    setPlayingPath(audioPath);
     setIsPlaying(true);
 
-    audio.addEventListener('ended', () => {
-      setIsPlaying(false);
-    });
+    // start visualizer shortly after (canvas ref must exist)
+    setTimeout(() => {
+      const canvas = canvasRefs.current[audioPath];
+      if (canvas) startVisualizer(audio, audioPath);
+    }, 120);
+  };
+
+  const pauseAudio = () => {
+    if (!currentAudio) return;
+    try { currentAudio.pause(); } catch (e) {}
+    setIsPlaying(false);
+    stopVisualizer();
   };
 
   const togglePlayPause = () => {
@@ -377,9 +511,14 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
     if (isPlaying) {
       currentAudio.pause();
       setIsPlaying(false);
+      stopVisualizer();
     } else {
-      currentAudio.play();
+      currentAudio.play().catch(() => {});
       setIsPlaying(true);
+      if (playingPath && currentAudio) {
+        const canvas = canvasRefs.current[playingPath];
+        if (canvas) startVisualizer(currentAudio, playingPath);
+      }
     }
   };
 
@@ -389,6 +528,49 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
     setIsMuted(newMuted);
     currentAudio.volume = newMuted ? 0 : 1;
   };
+
+  const seekAudio = (time: number) => {
+    if (!currentAudio) return;
+    currentAudio.currentTime = time;
+    setAudioCurrentTime(time);
+  };
+
+  const formatTime = (s: number) => {
+    if (!s || !isFinite(s)) return '0:00';
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60).toString().padStart(2, '0');
+    return `${m}:${sec}`;
+  };
+
+  // Download audio (falls back to opening URL if fetch is blocked)
+  const downloadAudio = async (url: string, fileName?: string) => {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Network response was not ok');
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = fileName || 'download';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      console.error('download failed, opening in new tab:', err);
+      window.open(url, '_blank', 'noopener');
+    }
+  };
+
+  // cleanup when component unmounts
+  useEffect(() => {
+    return () => {
+      if (currentAudio) {
+        try { currentAudio.pause(); } catch (e) {}
+      }
+      stopVisualizer();
+    };
+  }, [currentAudio]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -430,14 +612,41 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {filteredVideos.map((video) => (
                 <div key={video['File Name']} className="relative group rounded-xl overflow-hidden bg-card border border-border/20">
-                  <video
-                    controls
-                    className="w-full aspect-video object-cover"
-                    preload="metadata"
-                  >
-                    <source src={video.path} />
-                    Your browser does not support the video tag.
-                  </video>
+                  {/(?:youtube\.com|youtu\.be)/i.test(String(video.path)) ? (
+                    <div className="w-full aspect-video bg-black relative overflow-hidden">
+                      {/* YouTube embed for external video links */}
+                      <iframe
+                        title={video['File Name']}
+                        src={(() => {
+                          try {
+                            const u = new URL(String(video.path));
+                            let id = '';
+                            if (u.hostname.includes('youtu.be')) {
+                              id = u.pathname.slice(1);
+                            } else {
+                              id = u.searchParams.get('v') || '';
+                            }
+                            return id ? `https://www.youtube.com/embed/${id}` : String(video.path);
+                          } catch (e) {
+                            return String(video.path);
+                          }
+                        })()}
+                        className="w-full h-full"
+                        frameBorder="0"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                      />
+                    </div>
+                  ) : (
+                    <video
+                      controls
+                      className="w-full aspect-video object-cover"
+                      preload="metadata"
+                    >
+                      <source src={video.path} />
+                      Your browser does not support the video tag.
+                    </video>
+                  )}
                   <div className="p-3 border-t border-border/20">
                     <p className="font-semibold text-sm truncate">{video['File Name']}</p>
                     {video['Description'] && (
@@ -461,53 +670,73 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
 
           <TabsContent value="audios" className="mt-0">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredAudios.map((audio) => (
-                <div key={audio['File Name']} className="relative group rounded-xl overflow-hidden bg-card border border-border/20">
-                  <div className="aspect-video bg-gradient-to-br from-purple-500/20 to-pink-500/20 flex items-center justify-center">
-                    <Volume2 className="w-16 h-16 text-muted-foreground" />
-                  </div>
-                  <div className="p-3 border-t border-border/20">
-                    <p className="font-semibold text-sm truncate">{audio['File Name']}</p>
-                    {audio['Description'] && (
-                      <p className="text-xs text-muted-foreground truncate mt-1">{audio['Description']}</p>
-                    )}
-                    <div className="flex items-center gap-2 mt-3">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          if (currentAudio && !currentAudio.paused) {
-                            pauseAudio();
-                          } else {
-                            playAudio(audio.path);
-                          }
-                        }}
-                        className="flex-1"
-                      >
-                        {currentAudio && !currentAudio.paused ? (
-                          <><Pause className="w-4 h-4 mr-2" /> Pause</>
-                        ) : (
-                          <><Play className="w-4 h-4 mr-2" /> Play</>
-                        )}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={toggleMute}
-                      >
-                        {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-                      </Button>
-                    </div>
-                    {isAdmin && (
-                      <div className="mt-2">
-                        <DeleteButton fileName={audio['File Name']} type="audios" />
+              {filteredAudios.map((audio) => {
+                const isActive = playingPath === audio.path;
+                return (
+                  <div key={audio['File Name']} className="relative group rounded-xl overflow-hidden bg-card border border-border/20">
+
+                    {/* Compact header: filename + actions */}
+                    <div className="flex items-center gap-3 px-3 py-2">
+                      <canvas
+                        ref={(el) => { canvasRefs.current[audio.path] = el; }}
+                        className="w-28 h-8 rounded-md bg-muted/10"
+                        aria-hidden
+                      />
+
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-sm truncate">{audio['File Name']}</p>
+                        {audio['Description'] && <p className="text-xs text-muted-foreground truncate mt-1">{audio['Description']}</p>}
                       </div>
-                    )}
+
+                      <div className="flex items-center gap-2">
+                        <Button size="sm" variant="ghost" onClick={() => downloadAudio(audio.path, audio['File Name'])} aria-label="Download">
+                          <Download className="w-4 h-4" />
+                        </Button>
+                        {isAdmin && (
+                          <DeleteButton fileName={audio['File Name']} type="audios" />
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="p-3 pt-0 border-t border-border/20">
+                      <div className="flex items-center gap-3">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => (isActive ? togglePlayPause() : playAudio(audio.path))}
+                          className="h-9 w-28"
+                        >
+                          {isActive && isPlaying ? (<><Pause className="w-4 h-4 mr-2" /> Pause</>) : (<><Play className="w-4 h-4 mr-2" /> Play</>)}
+                        </Button>
+
+                        <div className="flex-1">
+                          <input
+                            aria-label="seek"
+                            type="range"
+                            min={0}
+                            max={isActive ? audioDuration || 0 : 0}
+                            step={0.1}
+                            value={isActive ? audioCurrentTime : 0}
+                            onChange={(e) => isActive && seekAudio(Number(e.target.value))}
+                            className="w-full"
+                            disabled={!isActive}
+                          />
+                          <div className="flex justify-between text-xs text-muted-foreground mt-2">
+                            <div>{isActive ? formatTime(audioCurrentTime) : '0:00'}</div>
+                            <div>{audioDuration ? formatTime(audioDuration) : '0:00'}</div>
+                          </div>
+                        </div>
+
+                        <Button size="sm" variant="ghost" onClick={toggleMute} className="ml-2">
+                          {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                        </Button>
+                      </div>
+                    </div>
                   </div>
-                  <audio src={audio.path} className="hidden" />
-                </div>
-              ))}
+                );
+              })}
             </div>
+
             {filteredAudios.length === 0 && (
               <div className="text-center py-20 text-muted-foreground">
                 {searchQuery ? 'No audio files match your search.' : 'No audio files uploaded yet.'}

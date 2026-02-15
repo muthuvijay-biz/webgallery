@@ -27,13 +27,22 @@ async function getFileMetadata(filePath: string, fileName: string, type: 'images
     mtimeMs: stats.mtime.getTime(),
   };
 
-  // Check for description file
+  // Check for description / companion metadata file
   const descriptionPath = `${filePath}.json`;
   try {
     const descriptionContent = await readFile(descriptionPath, 'utf-8');
     const descriptionData = JSON.parse(descriptionContent);
     if (descriptionData.description) {
       metadata['Description'] = descriptionData.description;
+    }
+    // If the JSON contains an externalUrl, treat this entry as an external reference
+    if (descriptionData.externalUrl) {
+      metadata.path = descriptionData.externalUrl;
+      if (descriptionData.size) {
+        metadata['File Size'] = `${(descriptionData.size / 1024 / 1024).toFixed(2)} MB`;
+      } else {
+        metadata['File Size'] = 'External';
+      }
     }
   } catch (error) {
     // Ignore if description file doesn't exist or is invalid
@@ -73,7 +82,7 @@ export async function getFiles(type: 'images' | 'videos' | 'documents'): Promise
 
       const filesWithMetadata: FileMetadata[] = await Promise.all(
         items.map(async ({ item }) => {
-          const size = (item.metadata as any)?.size ?? 0;
+          let size = (item.metadata as any)?.size ?? 0; // allow override from companion JSON
           const updated = (item as any).updated_at ?? (item as any).created_at ?? '';
           const filePath = `${type}/${item.name}`;
 
@@ -82,7 +91,7 @@ export async function getFiles(type: 'images' | 'videos' | 'documents'): Promise
             .from(bucket)
             .createSignedUrl(filePath, expiry);
 
-          const path = signedErr
+          let path = signedErr
             ? `${process.env.SUPABASE_URL}/storage/v1/object/public/${bucket}/${filePath}`
             : signedData?.signedUrl ?? `${process.env.SUPABASE_URL}/storage/v1/object/public/${bucket}/${filePath}`;
 
@@ -100,6 +109,14 @@ export async function getFiles(type: 'images' | 'videos' | 'documents'): Promise
               if (res.ok) {
                 const json = await res.json().catch(() => null);
                 if (json && typeof json.description === 'string') description = json.description;
+                // if JSON contains externalUrl, override path
+                if (json && typeof json.externalUrl === 'string') {
+                  path = json.externalUrl;
+                  if (json.size) {
+                    // if meta provides a size, use it
+                    size = json.size;
+                  }
+                }
               }
             }
           } catch (e) {

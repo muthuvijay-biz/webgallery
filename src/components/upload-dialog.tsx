@@ -26,9 +26,10 @@ export function UploadDialog({ type }: UploadDialogProps) {
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [description, setDescription] = useState('');
+  const [fileError, setFileError] = useState<string | null>(null);
   const { uploadFile, uploadingFiles } = useUpload();
   const inputRef = useRef<HTMLInputElement>(null);
-
+  const MAX_BYTES = 50 * 1024 * 1024;
   const handleSubmit = () => {
     // prevent concurrent uploads
     const isUploading = uploadingFiles.some((u) => u.status === 'uploading');
@@ -78,8 +79,18 @@ export function UploadDialog({ type }: UploadDialogProps) {
               type="file"
               ref={inputRef}
               required
-              onChange={(e) => setFile(e.target.files ? e.target.files[0] : null)}
-            />            <p className="text-xs text-muted-foreground">Max file size: 50 MB · One file at a time</p>          </div>
+              onChange={(e) => {
+                const f = e.target.files ? e.target.files[0] : null;
+                setFile(f);
+                if (f && f.size > MAX_BYTES) {
+                  setFileError('Selected file is too large (max 50 MB). Use Link mode for larger files.');
+                } else {
+                  setFileError(null);
+                }
+              }}
+            />
+            <p className="text-xs text-muted-foreground">Max file size: 50 MB · One file at a time</p>
+            {fileError && <p className="text-sm text-destructive mt-2">{fileError}</p>}          </div>
           <div className="grid w-full gap-1.5">
             <Label htmlFor="description">Description (optional)</Label>
             <Textarea
@@ -100,7 +111,7 @@ export function UploadDialog({ type }: UploadDialogProps) {
             )}
             <Button
               onClick={handleSubmit}
-              disabled={!file || uploadingFiles.some(u => u.status === 'uploading')}
+              disabled={!file || uploadingFiles.some(u => u.status === 'uploading') || !!fileError}
             >
               Upload
               <Upload className="ml-2 h-4 w-4" />

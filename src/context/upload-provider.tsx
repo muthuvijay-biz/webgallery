@@ -5,7 +5,7 @@ import React, { createContext, useContext, useState, ReactNode } from 'react';
 
 type UploadStatus = 'pending' | 'uploading' | 'success' | 'error';
 
-type RemoteFileDescriptor = { name: string; url?: string; size?: number; mime?: string };
+type RemoteFileDescriptor = { name: string; url?: string; size?: number; mime?: string; external?: boolean };
 
 type UploadingFile = {
   id: string;
@@ -18,7 +18,7 @@ type UploadingFile = {
 type UploadContextType = {
   uploadingFiles: UploadingFile[];
   uploadFile: (
-    file: File,
+    file: File | RemoteFileDescriptor,
     description: string,
     type: 'images' | 'videos' | 'documents' | 'audios'
   ) => void;
@@ -83,9 +83,10 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       if (fileOrUrl instanceof File) {
         formData.append('file', fileOrUrl);
       } else {
-        formData.append('url', fileOrUrl.url);
+        formData.append('url', fileOrUrl.url || '');
         if (fileOrUrl.name) formData.append('fileName', fileOrUrl.name);
         if (fileOrUrl.mime) formData.append('mime', fileOrUrl.mime);
+        if ((fileOrUrl as any).external) formData.append('external', 'true');
       }
 
       formData.append('type', type);
@@ -96,7 +97,16 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         result = await serverUploadFile(null, formData);
       } catch (err: any) {
         console.error('serverUploadFile threw:', err);
-        result = { success: false, message: err?.message || 'Upload failed' };
+        const msg = String(err?.message || 'Upload failed');
+        // Detect server-side rejection (413 / hosting body-size limits) or generic "unexpected response"
+        if (/413|too large|request entity too large|body too large|entity too large|content too large|unexpected response/i.test(msg)) {
+          result = {
+            success: false,
+            message: 'Upload rejected by server (likely file too large or hosting limit). Files larger than 50 MB should be added via Link mode (YouTube/Drive or direct URL).'
+          };
+        } else {
+          result = { success: false, message: msg };
+        }
       }
 
       setUploadingFiles((prev) =>

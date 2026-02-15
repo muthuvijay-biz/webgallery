@@ -45,8 +45,55 @@ export async function uploadFile(prevState: any, formData: FormData) {
     return { success: false, message: 'Missing file type.' };
   }
 
-  // If a URL was provided, fetch it on the server and treat it as the file
+  // If a URL was provided, either save it as an external reference OR fetch & store the remote file
   if (url) {
+    const externalFlag = (formData.get('external') as string | null) === 'true';
+
+    // If caller requested an external/reference-only entry (YouTube, Drive, or user choice)
+    if (externalFlag) {
+      const inferredName = clientFileName || (() => {
+        try {
+          return decodeURIComponent(new URL(url).pathname.split('/').filter(Boolean).pop() || `file-${Date.now()}`);
+        } catch (e) {
+          return `file-${Date.now()}`;
+        }
+      })();
+
+      const uploadDir = join(process.cwd(), 'public', 'uploads', type);
+      const sanitizedFileName = `${inferredName.replace(/[^a-zA-Z0-9.\-_]/g, '_')}.link`;
+      const placeholderPath = join(uploadDir, sanitizedFileName);
+      const meta = { description: description || null, externalUrl: url, mime: clientMime || null };
+
+      try {
+        if (process.env.USE_SUPABASE === 'true') {
+          const bucket = process.env.SUPABASE_BUCKET || '';
+          if (!bucket) {
+            return { success: false, message: 'SUPABASE_BUCKET not configured.' };
+          }
+          const destPlaceholder = `${type}/${sanitizedFileName}`;
+          const destMeta = `${type}/${sanitizedFileName}.json`;
+
+          await supabaseAdmin.storage.from(bucket).upload(destPlaceholder, Buffer.from(`external:${url}`), { contentType: 'text/plain', upsert: true });
+          await supabaseAdmin.storage.from(bucket).upload(destMeta, Buffer.from(JSON.stringify(meta)), { contentType: 'application/json', upsert: true }).catch(() => {});
+
+          revalidatePath('/');
+          revalidatePath('/uploads');
+          return { success: true, message: 'Link added to gallery as external reference.' };
+        }
+
+        await mkdir(uploadDir, { recursive: true });
+        await writeFile(placeholderPath, Buffer.from(`external:${url}`));
+        await writeFile(`${placeholderPath}.json`, JSON.stringify(meta));
+        revalidatePath('/');
+        revalidatePath('/uploads');
+        return { success: true, message: 'Link added to gallery as external reference.' };
+      } catch (err: any) {
+        console.error('uploadFile (external link) error:', err);
+        return { success: false, message: err?.message || 'Failed to add external link.' };
+      }
+    }
+
+    // --- otherwise fall back to fetching the remote file and storing it locally (existing behavior) ---
     try {
       const resp = await fetch(url);
       if (!resp.ok) {

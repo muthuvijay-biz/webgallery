@@ -20,7 +20,7 @@ import { cn } from '@/lib/utils';
 
 type FileCategory = 'images' | 'videos' | 'audios' | 'documents';
 
-type RemoteInput = { url: string; name?: string; mime?: string; size?: number };
+type RemoteInput = { url: string; name?: string; mime?: string; size?: number; external?: boolean };
 
 interface CategorizedFile {
   file: File | RemoteInput;
@@ -118,7 +118,9 @@ export function SmartUploadDialog() {
       const name = extractFileNameFromUrl(url);
       const category = detectCategoryFromUrl(url);
       const preview = category === 'images' ? url : undefined;
-      const remote: RemoteInput = { url, name };
+      // default to external for known hosts (YouTube/Drive) — otherwise we'll attempt to fetch the file server-side
+      const externalDefault = /youtube\.com|youtu\.be|drive\.google\.com|docs\.google\.com/i.test(url);
+      const remote: RemoteInput = { url, name, external: externalDefault };
       setFiles([{ file: remote, category, preview }]);
       setLinkUrl('');
       setMode('file'); // switch back to file mode to reuse the same preview UI
@@ -173,7 +175,7 @@ export function SmartUploadDialog() {
       if (file instanceof File) {
         await uploadFile(file, description, category);
       } else {
-        await uploadFile({ url: file.url || '', name: file.name, mime: file.mime, size: file.size }, description, category);
+        await uploadFile({ url: file.url || '', name: file.name, mime: file.mime, size: file.size, external: (file as any).external }, description, category);
       }
 
       // Close dialog and reset
@@ -285,16 +287,31 @@ export function SmartUploadDialog() {
 
           {/* Link input (shown in Link mode when no file selected) */}
           {mode === 'link' && files.length === 0 && (
-            <div className="flex gap-2 mt-3">
-              <Input
-                placeholder="https://example.com/photo.jpg"
-                value={linkUrl}
-                onChange={(e) => setLinkUrl(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && processLink(linkUrl)}
-              />
-              <Button onClick={() => processLink(linkUrl)}>
-                Add
-              </Button>
+            <div className="space-y-3 mt-3">
+              <div className="flex gap-2">
+                <Input
+                  placeholder="https://example.com/photo.jpg"
+                  value={linkUrl}
+                  onChange={(e) => setLinkUrl(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && processLink(linkUrl)}
+                />
+                <Button onClick={() => processLink(linkUrl)}>
+                  Add
+                </Button>
+              </div>
+              <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                <input
+                  id="external-toggle"
+                  type="checkbox"
+                  checked={files.length === 0 ? /youtube\.com|youtu\.be|drive\.google\.com|docs\.google\.com/i.test(linkUrl) : ('external' in files[0].file && (files[0].file as any).external)}
+                  onChange={(e) => {
+                    // user can toggle external mode before pressing Add; store temporarily in linkUrl metadata by re-parsing on Add
+                    // (no-op here; processLink will set default external for known hosts)
+                  }}
+                />
+                <label htmlFor="external-toggle">Add as external link (don't fetch/download)</label>
+                <div className="ml-auto text-xs text-muted-foreground">YouTube/Drive links default to external</div>
+              </div>
             </div>
           )}
 
@@ -372,10 +389,17 @@ export function SmartUploadDialog() {
                           {getCategoryIcon(item.category)}
                           <span>{categoryData.label}</span>
                         </div>
-                        <p className="text-base font-bold truncate text-foreground mb-1">{item.file.name}</p>
-                        <p className="text-sm font-medium text-muted-foreground">
-                          {(item.file.size / 1024 / 1024).toFixed(2)} MB
-                        </p>
+                        <div className="flex flex-col gap-1">
+                          <p className="text-base font-bold truncate text-foreground mb-0">{item.file.name}</p>
+                          {('external' in item.file && (item.file as any).external) && (
+                            <div className="text-xs text-muted-foreground">External link: <a className="underline" href={(item.file as any).url} target="_blank" rel="noreferrer">open</a></div>
+                          )}
+                          <p className="text-sm font-medium text-muted-foreground">
+                            {('size' in item.file && (item.file as any).size)
+                              ? `${(((item.file as any).size) / 1024 / 1024).toFixed(2)} MB`
+                              : '—'}
+                          </p>
+                        </div>
                       </div>
 
                       {/* Remove Button */}

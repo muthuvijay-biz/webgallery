@@ -47,19 +47,34 @@ export function PhotoCard({ photo, index, isAdmin }: PhotoCardProps) {
             )}
 
             {/* Background preview image */}
-            <Image
-              src={photo.path}
-              alt={photo['File Name']}
-              fill
-              onLoadingComplete={(img) => { 
-                setDims({ w: img.naturalWidth, h: img.naturalHeight }); 
-                setLoaded(true); 
-              }}
-              className={`object-cover group-hover:scale-105 transition-transform duration-500 ${loaded ? 'opacity-100' : 'opacity-0'}`}
-              sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 20vw"
-              loading="lazy"
-              quality={85}
-            />
+            {String(photo.path).startsWith('/') ? (
+              <Image
+                src={photo.path}
+                alt={photo['File Name']}
+                fill
+                onLoadingComplete={(img) => {
+                  setDims({ w: img.naturalWidth, h: img.naturalHeight });
+                  setLoaded(true);
+                }}
+                className={`object-cover group-hover:scale-105 transition-transform duration-500 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+                sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 20vw"
+                loading="lazy"
+                quality={85}
+              />
+            ) : (
+              // External / signed URLs (Supabase signed URLs) — render native <img> to avoid Next.js image proxy 400 errors
+              <img
+                src={photo.path}
+                alt={photo['File Name']}
+                onLoad={(e) => {
+                  const t = e.currentTarget as HTMLImageElement;
+                  setDims({ w: t.naturalWidth, h: t.naturalHeight });
+                  setLoaded(true);
+                }}
+                className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+                loading="lazy"
+              />
+            )}
 
             {/* PhotoSwipe clickable overlay */}
             <a
