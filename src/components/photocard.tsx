@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
-import { Info } from 'lucide-react';
+import { Info, Link as LinkIcon } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -96,11 +97,19 @@ export function PhotoCard({ photo, index, isAdmin }: PhotoCardProps) {
                   <Info className="h-3 w-3 sm:h-4 sm:w-4" />
                 </Button>
               </FileDetailsModal>
-              {isAdmin && <DeleteButton fileName={photo['File Name']} type="images" />}
+              {isAdmin && <DeleteButton fileName={photo.storedName ?? photo['File Name']} type="images" />}
             </div>
 
             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/70 to-transparent p-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-10">
-              <p className="text-white text-xs sm:text-sm font-semibold truncate">{photo['File Name']}</p>
+              <div className="flex items-center gap-2">
+                <p className="text-white text-xs sm:text-sm font-semibold truncate">{photo['File Name']}</p>
+                {(photo['File Size'] === 'External' || String(photo.storedName || '').toLowerCase().endsWith('.link')) && (
+                  <Badge variant="outline" className="text-[11px] px-2 py-0.5 bg-white/8 border-muted-foreground/10">
+                    <LinkIcon className="w-3 h-3 mr-1" />
+                    External
+                  </Badge>
+                )}
+              </div>
               {photo['Description'] && (
                 <p className="text-white/80 text-xs truncate mt-1">{photo['Description']}</p>
               )}
@@ -118,7 +127,7 @@ export function PhotoCard({ photo, index, isAdmin }: PhotoCardProps) {
             </Button>
           </FileDetailsModal>
           {isAdmin && (
-            <DeleteButton fileName={photo['File Name']} type="images" />
+            <DeleteButton fileName={photo.storedName ?? photo['File Name']} type="images" />
           )}
         </div>
       </PopoverContent>

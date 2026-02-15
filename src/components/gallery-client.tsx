@@ -9,6 +9,8 @@ import { GalleryHeader } from './gallery-header';
 import { PhotoCard } from './photocard';
 import { DeleteButton } from './delete-button';
 import DocumentViewer from './document-viewer';
+import { Badge } from './ui/badge';
+import { Link as LinkIcon } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import type { FileMetadata } from '@/lib/files';
@@ -692,13 +694,21 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
                     );
                   })()}
                   <div className="p-3 border-t border-border/20">
-                    <p className="font-semibold text-sm truncate">{video['File Name']}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-semibold text-sm truncate">{video['File Name']}</p>
+                      {(video['File Size'] === 'External' || String(video.storedName || '').toLowerCase().endsWith('.link')) && (
+                        <Badge variant="outline" className="text-[11px] px-2 py-0.5 bg-muted/10 border-muted-foreground/10">
+                          <LinkIcon className="w-3 h-3 mr-1" />
+                          External
+                        </Badge>
+                      )}
+                    </div>
                     {video['Description'] && (
                       <p className="text-xs text-muted-foreground truncate mt-1">{video['Description']}</p>
                     )}
                     {isAdmin && (
                       <div className="mt-2">
-                        <DeleteButton fileName={video['File Name']} type="videos" />
+                        <DeleteButton fileName={video.storedName ?? video['File Name']} type="videos" />
                       </div>
                     )}
                   </div>
@@ -728,7 +738,15 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
                       />
 
                       <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-sm truncate">{audio['File Name']}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-semibold text-sm truncate">{audio['File Name']}</p>
+                          {(audio['File Size'] === 'External' || String(audio.storedName || '').toLowerCase().endsWith('.link')) && (
+                            <Badge variant="outline" className="text-[11px] px-2 py-0.5 bg-muted/10 border-muted-foreground/10">
+                              <LinkIcon className="w-3 h-3 mr-1" />
+                              External
+                            </Badge>
+                          )}
+                        </div>
                         {audio['Description'] && <p className="text-xs text-muted-foreground truncate mt-1">{audio['Description']}</p>}
                       </div>
 
@@ -737,7 +755,7 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
                           <Download className="w-4 h-4" />
                         </Button>
                         {isAdmin && (
-                          <DeleteButton fileName={audio['File Name']} type="audios" />
+                          <DeleteButton fileName={audio.storedName ?? audio['File Name']} type="audios" />
                         )}
                       </div>
                     </div>
@@ -793,14 +811,22 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
               {filteredDocuments.map((doc) => (
                 <div key={doc['File Name']} className="flex items-center gap-4 p-4 border rounded-xl hover:border-primary/40 transition-colors">
                   <div className="flex-1">
-                    <h3 className="font-semibold text-sm">{doc['File Name']}</h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold text-sm">{doc['File Name']}</h3>
+                      {(doc['File Size'] === 'External' || String(doc.storedName || '').toLowerCase().endsWith('.link')) && (
+                        <Badge variant="outline" className="text-[11px] px-2 py-0.5 bg-muted/10 border-muted-foreground/10">
+                          <LinkIcon className="w-3 h-3 mr-1" />
+                          External
+                        </Badge>
+                      )}
+                    </div>
                     {doc['Description'] && <p className="text-xs text-muted-foreground">{doc['Description']}</p>}
                   </div>
                   <div className="flex gap-2">
                     <DocumentViewer file={doc}>
                       <Button variant="outline" size="sm">Preview</Button>
                     </DocumentViewer>
-                    {isAdmin && <DeleteButton fileName={doc['File Name']} type="documents" />}
+                    {isAdmin && <DeleteButton fileName={doc.storedName ?? doc['File Name']} type="documents" /> }
                   </div>
                 </div>
               ))}
@@ -911,7 +937,7 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
       {/* Hidden delete button for PhotoSwipe - triggered by toolbar */}
       {isAdmin && currentFileName && (
         <div style={{ position: 'absolute', top: 0, left: 0, opacity: 0, pointerEvents: 'all', zIndex: 99999999 }}>
-          <DeleteButton fileName={currentFileName} type="images" />
+          <DeleteButton fileName={selectedFile?.storedName ?? currentFileName} type="images" />
         </div>
       )}
 

@@ -4,7 +4,8 @@ import { mkdir } from 'fs/promises';
 import supabaseAdmin from './supabaseAdmin';
 
 export type FileMetadata = {
-  'File Name': string;
+  'File Name': string;           // display name (user-facing)
+  storedName?: string;           // actual stored filename on disk / bucket
   'File Size': string;
   'Last Modified': string;
   'Capture Date'?: string;
@@ -20,6 +21,7 @@ async function getFileMetadata(filePath: string, fileName: string, type: 'images
   const stats = await stat(filePath);
   const metadata: FileMetadata = {
     'File Name': fileName,
+    storedName: fileName,
     'File Size': `${(stats.size / 1024 / 1024).toFixed(2)} MB`,
     'Last Modified': stats.mtime.toLocaleDateString(),
     type: type.slice(0, -1) as 'image' | 'video' | 'document',
@@ -38,6 +40,9 @@ async function getFileMetadata(filePath: string, fileName: string, type: 'images
     // If the JSON contains an externalUrl, treat this entry as an external reference
     if (descriptionData.externalUrl) {
       metadata.path = descriptionData.externalUrl;
+      // show a friendly display name (strip the .link placeholder suffix)
+      metadata['File Name'] = fileName.replace(/\.link$/i, '') || metadata['File Name'];
+      metadata.storedName = fileName;
       if (descriptionData.size) {
         metadata['File Size'] = `${(descriptionData.size / 1024 / 1024).toFixed(2)} MB`;
       } else {
@@ -97,6 +102,7 @@ export async function getFiles(type: 'images' | 'videos' | 'documents'): Promise
 
           // attempt to load companion JSON description (fileName.json)
           let description: string | undefined = undefined;
+          let isExternal = false;
           try {
             const jsonPath = `${type}/${item.name}.json`;
             const { data: jsonSigned, error: jsonSignedErr } = await supabaseAdmin
@@ -109,9 +115,10 @@ export async function getFiles(type: 'images' | 'videos' | 'documents'): Promise
               if (res.ok) {
                 const json = await res.json().catch(() => null);
                 if (json && typeof json.description === 'string') description = json.description;
-                // if JSON contains externalUrl, override path
+                // if JSON contains externalUrl, override path and mark external
                 if (json && typeof json.externalUrl === 'string') {
                   path = json.externalUrl;
+                  isExternal = true;
                   if (json.size) {
                     // if meta provides a size, use it
                     size = json.size;
@@ -123,9 +130,13 @@ export async function getFiles(type: 'images' | 'videos' | 'documents'): Promise
             // ignore — description is optional
           }
 
+          const displayName = isExternal ? item.name.replace(/\.link$/i, '') : item.name;
+          const displaySize = isExternal && (!size || size === 0) ? 'External' : `${(size / 1024 / 1024).toFixed(2)} MB`;
+
           return {
-            'File Name': item.name,
-            'File Size': `${(size / 1024 / 1024).toFixed(2)} MB`,
+            'File Name': displayName,
+            storedName: item.name,
+            'File Size': displaySize,
             'Last Modified': updated ? new Date(updated).toLocaleDateString() : '',
             type: type.slice(0, -1) as 'image' | 'video' | 'document',
             path,

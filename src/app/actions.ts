@@ -276,30 +276,54 @@ export async function deleteFile(fileName: string, type: string) {
   }
 
   const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9.\-_]/g, '_');
-  const path = join(process.cwd(), 'public', 'uploads', type, sanitizedFileName);
+  const tryNames = [sanitizedFileName, `${sanitizedFileName}.link`];
 
   try {
     if (process.env.USE_SUPABASE === 'true') {
       const bucket = process.env.SUPABASE_BUCKET!;
-      const dest = `${type}/${sanitizedFileName}`;
 
-      const { error: removeError } = await supabaseAdmin
-        .storage
-        .from(bucket)
-        .remove([dest]);
+      // Try deleting the provided name first, then fallback to name.link
+      let removed = false;
+      for (const name of tryNames) {
+        const dest = `${type}/${name}`;
+        const { error: removeError } = await supabaseAdmin.storage.from(bucket).remove([dest]);
+        if (!removeError) {
+          removed = true;
+          await supabaseAdmin.storage.from(bucket).remove([`${dest}.json`]).catch(() => {});
+          break;
+        }
+      }
 
-      if (removeError) throw removeError;
-
-      await supabaseAdmin.storage.from(bucket).remove([`${dest}.json`]).catch(() => {});
+      if (!removed) throw new Error('File not found in storage.');
 
       revalidatePath('/');
       revalidatePath('/uploads');
       return { success: true, message: 'File deleted successfully.' };
     }
 
-    await unlink(path);
-    // Also delete the metadata file if it exists
-    await unlink(`${path}.json`).catch(() => {}); // Ignore error if it doesn't exist
+    // Local FS: try provided name, then name.link
+    let deleted = false;
+    for (const name of tryNames) {
+      const p = join(process.cwd(), 'public', 'uploads', type, name);
+      try {
+        await unlink(p);
+        // also attempt to remove companion json
+        await unlink(`${p}.json`).catch(() => {});
+        deleted = true;
+        break;
+      } catch (e: any) {
+        if (e?.code === 'ENOENT') {
+          // try next candidate
+          continue;
+        }
+        throw e;
+      }
+    }
+
+    if (!deleted) {
+      return { success: false, message: 'File not found on server.' };
+    }
+
     revalidatePath('/');
     revalidatePath('/uploads');
     return { success: true, message: 'File deleted successfully.' };

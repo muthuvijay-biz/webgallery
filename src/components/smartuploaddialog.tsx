@@ -137,12 +137,17 @@ export function SmartUploadDialog() {
   };
 
   const extractFileNameFromUrl = (url: string) => {
+    // Try to extract a sensible filename from the URL. If none found,
+    // return an empty string so the UI will ask the user to provide one.
     try {
       const u = new URL(url);
       const last = u.pathname.split('/').filter(Boolean).pop() ?? '';
-      return decodeURIComponent(last) || `file-${Date.now()}`;
+      const decoded = decodeURIComponent(last || '');
+      // if last segment looks like a filename with extension, return it
+      if (decoded && /\.[a-z0-9]{1,6}$/i.test(decoded)) return decoded;
+      return '';
     } catch (err) {
-      return `file-${Date.now()}`;
+      return '';
     }
   };
 
@@ -161,8 +166,9 @@ export function SmartUploadDialog() {
 
   const processLink = async (url: string) => {
     try {
+      // validate url first
       const parsed = new URL(url);
-      const name = extractFileNameFromUrl(url);
+      const name = extractFileNameFromUrl(url); // may be empty — prompt user
       const category = detectCategoryFromUrl(url);
       const preview = category === 'images' ? url : undefined;
       // default to external for known hosts (YouTube/Drive) — otherwise we'll attempt to fetch the file server-side
@@ -229,6 +235,18 @@ export function SmartUploadDialog() {
     setFiles((prev) => prev.map((f, i) => i === index ? { ...f, category: newCategory, preview: newPreview } : f));
   };
 
+  // update filename for remote descriptors (and allow editing before upload)
+  const updateFileName = (index: number, newName: string) => {
+    setFiles((prev) => prev.map((f, i) => {
+      if (i !== index) return f;
+      if ('url' in f.file) {
+        const updatedFile = { ...(f.file as RemoteInput), name: newName };
+        return { ...f, file: updatedFile };
+      }
+      return f;
+    }));
+  };
+
   const handleUpload = async () => {
     if (files.length === 0) {
       setErrorMessage('Please select a file or provide a link to upload.');
@@ -243,7 +261,14 @@ export function SmartUploadDialog() {
       if (file instanceof File) {
         await uploadFile(file, description, category);
       } else {
-        await uploadFile({ url: file.url || '', name: file.name, mime: file.mime, size: file.size, external: (file as any).external }, description, category);
+        // enforce filename provided for link uploads
+        const remoteName = (file as RemoteInput).name || '';
+        if (!remoteName.trim()) {
+          setErrorMessage('Please provide a file name for the link before uploading.');
+          setShowErrorModal(true);
+          return;
+        }
+        await uploadFile({ url: file.url || '', name: remoteName, mime: file.mime, size: file.size, external: (file as any).external }, description, category);
       }
 
       // Close dialog and reset
@@ -473,10 +498,31 @@ export function SmartUploadDialog() {
                           </select>
                         </div>
                         <div className="flex flex-col gap-1">
-                          <p className="text-base font-bold truncate text-foreground mb-0">{item.file.name}</p>
-                          {('external' in item.file && (item.file as any).external) && (
-                            <div className="text-xs text-muted-foreground">External link: <a className="underline" href={(item.file as any).url} target="_blank" rel="noreferrer">open</a></div>
+                          {/* Filename: for remote links show editable field and require non-empty name */}
+                          {'url' in item.file ? (
+                            <div className="flex flex-col gap-1">
+                              <Input
+                                value={(item.file as RemoteInput).name || ''}
+                                onChange={(e) => updateFileName(index, e.target.value)}
+                                placeholder="Enter file name (required) — include extension, e.g. photo.jpg"
+                                className="text-sm font-semibold"
+                                aria-label="Filename for link upload"
+                              />
+                              {/* show external link and validation hint */}
+                              <div className="flex items-center justify-between">
+                                {('external' in item.file && (item.file as any).external) ? (
+                                  <div className="text-xs text-muted-foreground">External link: <a className="underline" href={(item.file as any).url} target="_blank" rel="noreferrer">open</a></div>
+                                ) : <span />}
+
+                                {!((item.file as RemoteInput).name || '').trim() && (
+                                  <div className="text-xs text-destructive">File name is required for link uploads</div>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-base font-bold truncate text-foreground mb-0">{item.file.name}</p>
                           )}
+
                           <p className="text-sm font-medium text-muted-foreground">
                             {('size' in item.file && (item.file as any).size)
                               ? `${(((item.file as any).size) / 1024 / 1024).toFixed(2)} MB`
@@ -542,7 +588,10 @@ export function SmartUploadDialog() {
             <Button
               type="button"
               onClick={handleUpload}
-              disabled={files.length === 0}
+              disabled={
+                files.length === 0 ||
+                (files[0] && 'url' in files[0].file && !((files[0].file as RemoteInput).name || '').trim())
+              }
               className="flex-1 h-12 rounded-xl font-bold text-base shadow-lg bg-gradient-to-r from-[#667eea] to-[#764ba2] text-white hover:shadow-xl hover:scale-[1.02] transition-all disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:scale-100"
             >
               <Check className="mr-2 h-5 w-5" />
