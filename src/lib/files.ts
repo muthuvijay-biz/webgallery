@@ -51,6 +51,8 @@ export type FileMetadata = {
   'Description'?: string;
   type: 'image' | 'video' | 'document';
   path: string;
+  // optional same-origin proxy URL (served by /api/storage) to avoid CORP/ORB issues
+  proxyPath?: string;
   // optional timestamps for sorting
   mtimeMs?: number;
 };
@@ -64,6 +66,7 @@ async function getFileMetadata(filePath: string, fileName: string, type: 'images
     'Last Modified': stats.mtime.toLocaleDateString(),
     type: type.slice(0, -1) as 'image' | 'video' | 'document',
     path: `/uploads/${type}/${fileName}`,
+    proxyPath: `/api/storage?file=${encodeURIComponent(`${type}/${fileName}`)}`,
     mtimeMs: stats.mtime.getTime(),
   };
 
@@ -280,6 +283,7 @@ export async function getFiles(type: 'images' | 'videos' | 'documents'): Promise
             'Last Modified': updated ? new Date(updated).toLocaleDateString() : '',
             type: type.slice(0, -1) as 'image' | 'video' | 'document',
             path,
+            proxyPath: `${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}/api/storage?file=${encodeURIComponent(`${type}/${item.name}`)}`,
             mtimeMs: Date.parse(updated) || 0,
             Description: description,
           } as FileMetadata;

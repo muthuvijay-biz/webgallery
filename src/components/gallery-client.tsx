@@ -366,8 +366,32 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
   const filteredDocuments = filterFiles(documents);
   const filteredAudios = filterFiles(audios);
 
-  // build items for react-image-gallery (Photos tab viewer)
-  const galleryItems = filteredPhotos.map(p => ({ original: p.path, thumbnail: p.path, originalAlt: p['File Name'] }));
+  // helper: derive same-origin proxy for Supabase image URLs (or use storedName)
+  const deriveProxySrc = (p: FileMetadata) => {
+    if (p.proxyPath) return p.proxyPath;
+    const pathStr = String(p.path || '');
+    if (p.storedName && !String(p.storedName).toLowerCase().endsWith('.link')) {
+      return `/api/storage?file=images/${encodeURIComponent(p.storedName)}`;
+    }
+    const supa = pathStr.match(/https?:\/\/[^/]+\/storage\/v1\/object\/(?:sign|public)\/(uploads\/(images|videos|documents)\/[^?\s]+)/i);
+    if (supa) {
+      const uploaded = supa[1].replace(/^uploads\//i, '');
+      if (/^images\//i.test(uploaded)) return `/api/storage?file=${encodeURIComponent(uploaded)}`;
+    }
+    const parts = pathStr.split('/storage/v1/object/');
+    if (parts.length === 2) {
+      const uploaded = parts[1].split('?')[0];
+      const fileParam = uploaded.replace(/^uploads\//i, '');
+      if (/^images\//i.test(fileParam)) return `/api/storage?file=${encodeURIComponent(fileParam)}`;
+    }
+    return null;
+  };
+
+  // build items for react-image-gallery (Photos tab viewer) — prefer proxy URLs to avoid ORB/CORP issues
+  const galleryItems = filteredPhotos.map(p => {
+    const src = deriveProxySrc(p) ?? p.path;
+    return { original: src, thumbnail: src, originalAlt: p['File Name'] };
+  });
 
   // keep a live ref of the current filteredPhotos so modal handlers see the latest list
   const latestPhotosRef = useRef(filteredPhotos);
@@ -1101,7 +1125,7 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
             <div className="absolute top-3 right-3 z-[99999999] flex items-center gap-2">
               {/* download hidden for non-logged / anonymous users */}
               {isAdmin && (
-                <Button variant="ghost" size="icon" className="text-white" onClick={() => downloadImage(filteredPhotos[galleryStartIndex]?.path, filteredPhotos[galleryStartIndex]?.['File Name'])}>
+                <Button variant="ghost" size="icon" className="text-white" onClick={() => downloadImage(deriveProxySrc(filteredPhotos[galleryStartIndex]) ?? filteredPhotos[galleryStartIndex]?.path, filteredPhotos[galleryStartIndex]?.['File Name'])}>
                   <Download className="w-4 h-4" />
                 </Button>
               )}

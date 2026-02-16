@@ -48,8 +48,8 @@ export function PhotoCard({ photo, index, isAdmin }: PhotoCardProps) {
     return null;
   };
 
-  const initialProxy = deriveProxySrc(photo);
-  const [imgSrc, setImgSrc] = useState<string>(String(initialProxy ?? photo.path));
+  const initialProxy = String(photo.proxyPath || deriveProxySrc(photo) || photo.path);
+  const [imgSrc, setImgSrc] = useState<string>(initialProxy);
 
   // keep imgSrc in sync if photo changes (e.g. when switching between sources)
   useEffect(() => {
