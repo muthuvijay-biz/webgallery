@@ -217,14 +217,22 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
       const byIndex = slides.find(s => String(s.getAttribute('data-index')) === String(galleryStartIndex));
       if (byIndex) {
         const el = byIndex.querySelector('.image-gallery-image') as HTMLElement | null;
-        if (el) return el;
+        if (el) {
+          const src = (el as HTMLImageElement).currentSrc || (el as HTMLImageElement).src || '';
+          console.debug('[Gallery] getActiveImageElement -> byIndex', galleryStartIndex, src);
+          return el;
+        }
       }
 
       // fallback: find slide that's not aria-hidden
       const visible = slides.find(s => s.getAttribute('aria-hidden') === 'false' || !s.hasAttribute('aria-hidden'));
       if (visible) {
         const el = visible.querySelector('.image-gallery-image') as HTMLElement | null;
-        if (el) return el;
+        if (el) {
+          const src = (el as HTMLImageElement).currentSrc || (el as HTMLImageElement).src || '';
+          console.debug('[Gallery] getActiveImageElement -> visible slide', src);
+          return el;
+        }
       }
     }
 
@@ -233,12 +241,16 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
     if (expected) {
       const imgs = Array.from(document.querySelectorAll('.image-gallery-image')) as HTMLImageElement[];
       const bySrc = imgs.find(i => (i.currentSrc || i.src || '').includes(expected));
-      if (bySrc) return bySrc as HTMLElement;
+      if (bySrc) {
+        console.debug('[Gallery] getActiveImageElement -> bySrc', galleryStartIndex, expected, bySrc.currentSrc || bySrc.src);
+        return bySrc as HTMLElement;
+      }
     }
 
     // last resort: first visible image element
     const imgs = Array.from(document.querySelectorAll('.image-gallery-image')) as HTMLElement[];
     const visibleImg = imgs.find(i => i.offsetParent !== null && window.getComputedStyle(i).visibility !== 'hidden');
+    console.debug('[Gallery] getActiveImageElement -> fallback', visibleImg ? ((visibleImg as HTMLImageElement).currentSrc || (visibleImg as HTMLImageElement).src) : 'none', 'count=', imgs.length);
     return visibleImg || imgs[0] || null;
   };
 
@@ -255,9 +267,18 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
       }
     }
 
-    if (!activeImg) return;
+    if (!activeImg) {
+      console.debug('[Gallery] setImageTransform -> no active image found for index', galleryStartIndex);
+      return;
+    }
     const tx = Math.round(translateRef.current.x);
     const ty = Math.round(translateRef.current.y);
+    console.debug('[Gallery] setImageTransform -> index', galleryStartIndex, 'scale', scaleRef.current, 'translate', translateRef.current, 'src', (activeImg as HTMLImageElement).currentSrc || (activeImg as HTMLImageElement).src);
+
+    // add visual debug class while zoomed so user can see which image is targeted
+    allImgs.forEach(i => i.classList.remove('gallery-zoom-active'));
+    if (scaleRef.current > 1.01) activeImg.classList.add('gallery-zoom-active');
+
     activeImg.style.transition = scaleRef.current === 1 ? 'transform 160ms ease' : 'none';
     activeImg.style.transform = `translate(${tx}px, ${ty}px) scale(${scaleRef.current})`;
     activeImg.style.transformOrigin = 'center center';
@@ -376,6 +397,8 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
       overlaySwipeRef.current.startX = t.clientX;
       overlaySwipeRef.current.startTime = Date.now();
 
+      console.debug('[Gallery] touchStart', { index: galleryStartIndex, touches: ev.touches.length });
+
       if (ev.touches.length === 2) {
         pinchRef.current.active = true;
         pinchRef.current.initialDistance = Math.hypot(ev.touches[0].clientX - ev.touches[1].clientX, ev.touches[0].clientY - ev.touches[1].clientY);
@@ -395,6 +418,7 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
         ev.preventDefault();
         const d = Math.hypot(ev.touches[0].clientX - ev.touches[1].clientX, ev.touches[0].clientY - ev.touches[1].clientY);
         const newScale = pinchRef.current.initialScale * (d / (pinchRef.current.initialDistance || 1));
+        console.debug('[Gallery] pinch move', { index: galleryStartIndex, scaleBefore: scaleRef.current, newScale });
         applyScale(newScale);
         return;
       }
@@ -429,10 +453,12 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
     const touchEnd = (ev: TouchEvent) => {
       if (pinchRef.current.active) {
         pinchRef.current.active = false;
+        console.debug('[Gallery] touchEnd - pinch', { index: galleryStartIndex, scale: scaleRef.current });
         if (scaleRef.current <= 1.01) resetScale();
       }
       if (panRef.current.active) {
         panRef.current.active = false;
+        console.debug('[Gallery] touchEnd - pan', { index: galleryStartIndex, translate: translateRef.current });
         if (scaleRef.current <= 1.01) resetScale();
       }
 
@@ -966,26 +992,31 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
           <TabsContent value="documents" className="mt-0">
             <div className="space-y-3">
               {filteredDocuments.map((doc) => (
-                <div key={doc['File Name']} className="flex items-center gap-4 p-4 border rounded-xl hover:border-primary/40 transition-colors">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-semibold text-sm">{doc['File Name']}</h3>
-                      {(doc['File Size'] === 'External' || String(doc.storedName || '').toLowerCase().endsWith('.link') || (String(doc.path || '').startsWith('http') && !String(doc.path || '').includes('/uploads/')) || (String(doc.path || '').includes('/uploads/') && !/\.[a-z0-9]{2,6}$/i.test(String(doc['File Name'] || '')))) && (
-                        <Badge variant="outline" className="text-[11px] px-2 py-0.5 bg-muted/10 border-muted-foreground/10">
-                          <LinkIcon className="w-3 h-3 mr-1" />
-                          External
-                        </Badge>
-                      )}
+                <DocumentViewer key={doc['File Name']} file={doc}>
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    className="cursor-pointer flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 p-3 sm:p-4 border rounded-xl hover:border-primary/40 transition-colors"
+                  >
+                    <div className="flex-1 w-full">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-semibold text-sm truncate">{doc['File Name']}</h3>
+                        {(doc['File Size'] === 'External' || String(doc.storedName || '').toLowerCase().endsWith('.link') || (String(doc.path || '').startsWith('http') && !String(doc.path || '').includes('/uploads/')) || (String(doc.path || '').includes('/uploads/') && !/\.[a-z0-9]{2,6}$/i.test(String(doc['File Name'] || '')))) && (
+                          <Badge variant="outline" className="text-[11px] px-2 py-0.5 bg-muted/10 border-muted-foreground/10">
+                            <LinkIcon className="w-3 h-3 mr-1" />
+                            External
+                          </Badge>
+                        )}
+                      </div>
+                      {doc['Description'] && <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{doc['Description']}</p>}
                     </div>
-                    {doc['Description'] && <p className="text-xs text-muted-foreground">{doc['Description']}</p>}
-                  </div>
-                  <div className="flex gap-2">
-                    <DocumentViewer file={doc}>
+
+                    <div className="flex-shrink-0 flex items-center gap-2 mt-3 sm:mt-0">
                       <Button variant="outline" size="sm">Preview</Button>
-                    </DocumentViewer>
-                    {isAdmin && <DeleteButton fileName={doc.storedName ?? doc['File Name']} type="documents" /> }
+                      {isAdmin && <DeleteButton fileName={doc.storedName ?? doc['File Name']} type="documents" /> }
+                    </div>
                   </div>
-                </div>
+                </DocumentViewer>
               ))}
             </div>
             {filteredDocuments.length === 0 && (
@@ -1225,12 +1256,13 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
         .image-gallery-slide { display: flex !important; align-items: center !important; justify-content: center !important; }
         /* make image use the full available viewport area (width OR height) */
         .image-gallery-image { width: auto !important; height: auto !important; max-width: calc(100vw - 48px) !important; max-height: calc(100vh - 140px) !important; object-fit: contain !important; margin: 0 auto !important; }
-        .image-gallery-index { display: none !important; }
+          .image-gallery-index { display: none !important; }
         @media (max-width: 640px) {
           .image-gallery-left-nav, .image-gallery-right-nav { display: none !important; }
           .image-gallery-image { max-height: calc(100vh - 120px) !important; max-width: calc(100vw - 32px) !important; }
         }
-
+        /* visual debug when zoom is active */
+        .gallery-zoom-active { box-shadow: 0 8px 30px rgba(0,0,0,0.6) inset, 0 0 0 3px rgba(255,255,255,0.04); border-radius: 4px; }
         /* Fullscreen: make image truly fill viewport so pinch/pan behaves across full-screen */
         :fullscreen .image-gallery-image,
         :-webkit-full-screen .image-gallery-image,

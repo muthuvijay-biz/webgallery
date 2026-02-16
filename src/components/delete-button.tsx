@@ -40,7 +40,13 @@ export function DeleteButton({ fileName, type }: DeleteButtonProps) {
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button variant="destructive" size="icon" className="h-8 w-8 transition-opacity">
+        <Button
+          variant="destructive"
+          size="icon"
+          className="h-8 w-8 transition-opacity"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
           <Trash2 className="h-4 w-4" />
           <span className="sr-only">Delete</span>
         </Button>

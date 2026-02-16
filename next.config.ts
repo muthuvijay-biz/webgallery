@@ -44,6 +44,25 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '50mb', // Increase body size limit for file uploads
     },
   },
+
+  // Prevent native `canvas` (optional dep of pdfjs-dist) from being bundled into
+  // client/server bundles where it's not available. This tells webpack to
+  // fallback `canvas` to `false` so require('canvas') won't try to resolve
+  // native bindings during build.
+  webpack(config) {
+    if (config.resolve) {
+      config.resolve.fallback = {
+        ...(config.resolve.fallback || {}),
+        canvas: false,
+      };
+      config.resolve.alias = {
+        ...(config.resolve.alias || {}),
+        // explicit no-op alias for platforms that attempt to import canvas
+        canvas: false,
+      };
+    }
+    return config;
+  },
 };
 
 export default nextConfig;

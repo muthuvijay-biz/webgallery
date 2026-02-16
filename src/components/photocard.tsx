@@ -25,35 +25,70 @@ export function PhotoCard({ photo, index, isAdmin }: PhotoCardProps) {
   const isMobile = useIsMobile();
   const [actionsOpen, setActionsOpen] = useState(false);
 
-  // reset `loaded` when the source changes. also handle the cached-image race
-  // where the browser may have already completed the image before React's
-  // onLoad/onLoadingComplete handlers are attached — in that case detect the
-  // existing <img> element and mark loaded=true so the skeleton doesn't stick.
+  // reset `loaded` when the source changes. handle cached-image races and
+  // different DOM representations (Next/Image proxy, signed URLs, encoded URLs).
   useEffect(() => {
     setLoaded(false);
+
+    const filename = String(photo.storedName || photo['File Name'] || '');
 
     const checkCached = () => {
       try {
         const imgs = Array.from(document.querySelectorAll('img')) as HTMLImageElement[];
-        const match = imgs.find(i => i.src && (i.src.endsWith(photo.path) || i.src.includes(photo.path)));
+        const match = imgs.find(i => {
+          if (!i.src) return false;
+          const src = i.src;
+          // direct match or contains raw path
+          if (src.endsWith(photo.path) || src.includes(photo.path)) return true;
+          // match by storedName or filename (covers signed/encoded URLs)
+          if (filename && (src.includes(filename) || decodeURIComponent(src).includes(filename))) return true;
+          // try decoding the src and look for the photo.path
+          try { if (decodeURIComponent(src).includes(photo.path)) return true; } catch (e) { /* ignore */ }
+          return false;
+        });
+
         if (match && match.complete && (match.naturalWidth || 0) > 0) {
           setDims({ w: match.naturalWidth, h: match.naturalHeight });
           setLoaded(true);
           return true;
         }
+
+        // attach listeners to detect eventual load/error
+        if (match && !match.complete) {
+          const onLoad = () => {
+            setDims({ w: match.naturalWidth, h: match.naturalHeight });
+            setLoaded(true);
+            cleanup();
+          };
+          const onError = () => {
+            // don't leave skeleton forever on error — show fallback UI
+            setLoaded(true);
+            cleanup();
+          };
+          const cleanup = () => {
+            match.removeEventListener('load', onLoad);
+            match.removeEventListener('error', onError);
+          };
+          match.addEventListener('load', onLoad);
+          match.addEventListener('error', onError);
+        }
       } catch (e) {
-        // ignore DOM access errors
+        // ignore DOM access/errors
       }
       return false;
     };
 
-    // check immediately and again shortly after to cover timing races
+    // try several retries to cover timing races
     if (!checkCached()) {
-      const t = window.setTimeout(checkCached, 120);
-      return () => window.clearTimeout(t);
+      const timers = [
+        window.setTimeout(checkCached, 120),
+        window.setTimeout(checkCached, 400),
+        window.setTimeout(checkCached, 1200),
+      ];
+      return () => timers.forEach(t => window.clearTimeout(t));
     }
     return () => {};
-  }, [photo.path]);
+  }, [photo.path, photo.storedName, photo['File Name']]);
 
   return (
     <Popover open={actionsOpen} onOpenChange={setActionsOpen}>
@@ -83,6 +118,10 @@ export function PhotoCard({ photo, index, isAdmin }: PhotoCardProps) {
                 setDims({ w: img.naturalWidth, h: img.naturalHeight });
                 setLoaded(true);
               }}
+              onError={() => {
+                // remove skeleton if the image can't be decoded/rendered
+                setLoaded(true);
+              }}
               className={`object-cover group-hover:scale-105 transition-transform duration-500 ${loaded ? 'opacity-100' : 'opacity-0'}`}
               sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 20vw"
               loading="lazy"
@@ -98,6 +137,7 @@ export function PhotoCard({ photo, index, isAdmin }: PhotoCardProps) {
                 setDims({ w: t.naturalWidth, h: t.naturalHeight });
                 setLoaded(true);
               }}
+              onError={() => setLoaded(true)}
               className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ${loaded ? 'opacity-100' : 'opacity-0'}`}
               loading="lazy"
             />
