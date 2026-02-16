@@ -15,6 +15,7 @@ export default function PdfViewer({ src, initialPage = 1 }: PdfViewerProps) {
   const [scale, setScale] = useState(1.0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [fallbackIframe, setFallbackIframe] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -40,12 +41,14 @@ export default function PdfViewer({ src, initialPage = 1 }: PdfViewerProps) {
         const res = await fetch(src, { cache: 'no-store' });
         if (!res.ok) throw new Error(`Failed to fetch PDF (${res.status})`);
         const data = await res.arrayBuffer();
+        console.debug('[PdfViewer] fetched PDF bytes:', data.byteLength);
 
         // disableWorker: render on the main thread to avoid worker/CSP/OffscreenCanvas issues
         const loadingTask = pdfjs.getDocument({ data, disableWorker: true });
         const pdf = await loadingTask.promise;
         if (cancelled) return;
         pdfRef.current = pdf;
+        console.debug('[PdfViewer] pdf loaded, pages=', pdf.numPages);
         setNumPages(pdf.numPages);
         setPage(Math.min(initialPage, pdf.numPages));
         setLoading(false);
@@ -89,6 +92,7 @@ export default function PdfViewer({ src, initialPage = 1 }: PdfViewerProps) {
         canvas.style.width = Math.floor(viewport.width / dpr) + 'px';
         canvas.style.height = Math.floor(viewport.height / dpr) + 'px';
 
+        console.debug('[PdfViewer] rendering page', page, 'scale', scale, 'dpr', dpr);
         const renderTask = pageObj.render({ canvasContext: context, viewport });
         await renderTask.promise;
 
@@ -96,6 +100,7 @@ export default function PdfViewer({ src, initialPage = 1 }: PdfViewerProps) {
         try {
           const img = context.getImageData(0, 0, 1, 1).data;
           const allEmpty = img[0] === 0 && img[1] === 0 && img[2] === 0 && img[3] === 0;
+          console.debug('[PdfViewer] pixel sample:', img, 'allEmpty=', allEmpty);
           if (allEmpty) {
             // try one more render at a slightly higher scale
             const retryViewport = pageObj.getViewport({ scale: (scale + 0.25) * dpr });
@@ -104,6 +109,16 @@ export default function PdfViewer({ src, initialPage = 1 }: PdfViewerProps) {
             canvas.style.width = Math.floor(retryViewport.width / dpr) + 'px';
             canvas.style.height = Math.floor(retryViewport.height / dpr) + 'px';
             await (await pageObj.render({ canvasContext: context, viewport: retryViewport })).promise;
+
+            // re-sample after retry
+            const img2 = context.getImageData(0, 0, 1, 1).data;
+            const allEmpty2 = img2[0] === 0 && img2[1] === 0 && img2[2] === 0 && img2[3] === 0;
+            console.debug('[PdfViewer] pixel sample after retry:', img2, 'allEmpty=', allEmpty2);
+            if (allEmpty2) {
+              console.warn('[PdfViewer] canvas appears blank after retry — falling back to iframe');
+              setError('Blank render — falling back to native viewer');
+              setFallbackIframe(true);
+            }
           }
         } catch (e) {
           // ignore pixel-sampling errors
@@ -118,6 +133,17 @@ export default function PdfViewer({ src, initialPage = 1 }: PdfViewerProps) {
   }, [page, scale]);
 
   if (loading) return <div className="h-[60vh] flex items-center justify-center">Loading PDF…</div>;
+
+  // If pdf.js failed or produced a blank canvas we fall back to a same-origin iframe
+  if (error && fallbackIframe) {
+    return (
+      <div className="h-[60vh] w-full bg-white">
+        <div className="p-3 border-b text-sm text-muted-foreground">PDF renderer failed — using browser viewer as fallback</div>
+        <iframe src={src} className="w-full h-[calc(60vh-48px)]" title="pdf-fallback" frameBorder={0} />
+      </div>
+    );
+  }
+
   if (error) return (
     <div className="p-4 text-sm text-red-700 bg-red-50">
       Failed to load PDF preview — <a className="underline" href={src} target="_blank" rel="noreferrer">open externally</a>
