@@ -75,15 +75,42 @@ export default function PdfViewer({ src, initialPage = 1 }: PdfViewerProps) {
       try {
         const pageObj = await pdf.getPage(page);
         if (cancelled) return;
-        const viewport = pageObj.getViewport({ scale });
+
+        // account for devicePixelRatio for crisp rendering on high-DPI displays
+        const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+        const viewport = pageObj.getViewport({ scale: scale * dpr });
+
         const context = canvas.getContext('2d');
-        if (!context) return;
+        if (!context) throw new Error('Canvas 2D context not available');
+
         canvas.width = Math.floor(viewport.width);
         canvas.height = Math.floor(viewport.height);
+        // make canvas visually scale to CSS pixels
+        canvas.style.width = Math.floor(viewport.width / dpr) + 'px';
+        canvas.style.height = Math.floor(viewport.height / dpr) + 'px';
+
         const renderTask = pageObj.render({ canvasContext: context, viewport });
         await renderTask.promise;
-      } catch (err) {
-        // ignore individual render errors
+
+        // quick sanity-check: ensure canvas has non-empty pixel content
+        try {
+          const img = context.getImageData(0, 0, 1, 1).data;
+          const allEmpty = img[0] === 0 && img[1] === 0 && img[2] === 0 && img[3] === 0;
+          if (allEmpty) {
+            // try one more render at a slightly higher scale
+            const retryViewport = pageObj.getViewport({ scale: (scale + 0.25) * dpr });
+            canvas.width = Math.floor(retryViewport.width);
+            canvas.height = Math.floor(retryViewport.height);
+            canvas.style.width = Math.floor(retryViewport.width / dpr) + 'px';
+            canvas.style.height = Math.floor(retryViewport.height / dpr) + 'px';
+            await (await pageObj.render({ canvasContext: context, viewport: retryViewport })).promise;
+          }
+        } catch (e) {
+          // ignore pixel-sampling errors
+        }
+      } catch (err: any) {
+        console.error('PDF render error:', err);
+        setError(err?.message || 'Render error');
       }
     }
     renderPage();
