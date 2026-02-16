@@ -25,6 +25,37 @@ export function PhotoCard({ photo, index, isAdmin }: PhotoCardProps) {
   const isMobile = useIsMobile();
   const [actionsOpen, setActionsOpen] = useState(false);
 
+  // derive a same-origin proxy URL for stored images or Supabase signed URLs
+  const deriveProxySrc = (p: FileMetadata) => {
+    const pathStr = String(p.path || '');
+    // prefer explicit storedName when present
+    if (p.storedName && !String(p.storedName).toLowerCase().endsWith('.link')) {
+      return `/api/storage?file=images/${encodeURIComponent(p.storedName)}`;
+    }
+    // match supabase signed/public URLs and convert to proxy
+    const supa = pathStr.match(/https?:\/\/[^/]+\/storage\/v1\/object\/(?:sign|public)\/(uploads\/(images|videos|documents)\/[^?\s]+)/i);
+    if (supa) {
+      const uploaded = supa[1].replace(/^uploads\//i, '');
+      if (/^images\//i.test(uploaded)) return `/api/storage?file=${encodeURIComponent(uploaded)}`;
+    }
+    // generic supabase fallback
+    const parts = pathStr.split('/storage/v1/object/');
+    if (parts.length === 2) {
+      const uploaded = parts[1].split('?')[0];
+      const fileParam = uploaded.replace(/^uploads\//i, '');
+      if (/^images\//i.test(fileParam)) return `/api/storage?file=${encodeURIComponent(fileParam)}`;
+    }
+    return null;
+  };
+
+  const initialProxy = deriveProxySrc(photo);
+  const [imgSrc, setImgSrc] = useState<string>(String(initialProxy ?? photo.path));
+
+  // keep imgSrc in sync if photo changes (e.g. when switching between sources)
+  useEffect(() => {
+    setImgSrc(String(deriveProxySrc(photo) ?? photo.path));
+  }, [photo.path, photo.storedName]);
+
   // reset `loaded` when the source changes. handle cached-image races and
   // different DOM representations (Next/Image proxy, signed URLs, encoded URLs).
   useEffect(() => {
@@ -128,16 +159,28 @@ export function PhotoCard({ photo, index, isAdmin }: PhotoCardProps) {
               quality={85}
             />
           ) : (
-            // External / signed URLs (Supabase signed URLs) — render native <img> to avoid Next.js image proxy 400 errors
+            // External / signed URLs: use same-origin proxy when possible to avoid browser blocking
             <img
-              src={photo.path}
+              src={imgSrc}
               alt={photo['File Name']}
               onLoad={(e) => {
                 const t = e.currentTarget as HTMLImageElement;
                 setDims({ w: t.naturalWidth, h: t.naturalHeight });
                 setLoaded(true);
               }}
-              onError={() => setLoaded(true)}
+              onError={(e) => {
+                // if original signed URL was blocked, retry using proxy once
+                if (!String(imgSrc).startsWith('/api/storage')) {
+                  const proxy = deriveProxySrc(photo);
+                  if (proxy) {
+                    // eslint-disable-next-line no-console
+                    console.debug('[PhotoCard] image load failed — retrying via proxy ->', proxy);
+                    setImgSrc(proxy);
+                    return;
+                  }
+                }
+                setLoaded(true);
+              }}
               className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ${loaded ? 'opacity-100' : 'opacity-0'}`}
               loading="lazy"
             />
