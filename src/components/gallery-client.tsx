@@ -203,6 +203,14 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
   const [imageGalleryOpen, setImageGalleryOpen] = useState(false);
   const [galleryStartIndex, setGalleryStartIndex] = useState(0);
 
+  // keep transforms in sync when slide changes
+  useEffect(() => {
+    if (!imageGalleryOpen) return;
+    // apply after DOM updates
+    const t = requestAnimationFrame(() => setImageTransform());
+    return () => cancelAnimationFrame(t);
+  }, [galleryStartIndex, imageGalleryOpen]);
+
   // pinch / zoom / pan state for modal viewer
   const scaleRef = useRef<number>(1);
   const pinchRef = useRef<{ active: boolean; initialDistance: number; initialScale: number }>({ active: false, initialDistance: 0, initialScale: 1 });
@@ -211,7 +219,7 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
   const panRef = useRef<{ active: boolean; startX: number; startY: number; lastX: number; lastY: number }>({ active: false, startX: 0, startY: 0, lastX: 0, lastY: 0 });
 
   const getActiveImageElement = (): HTMLElement | null => {
-    // prefer slide with matching data-index (react-image-gallery keeps slides in DOM)
+    // 1) prefer slide with matching data-index (react-image-gallery keeps slides in DOM)
     const slides = Array.from(document.querySelectorAll('.image-gallery-slide')) as HTMLElement[];
     if (slides.length > 0) {
       const byIndex = slides.find(s => String(s.getAttribute('data-index')) === String(galleryStartIndex));
@@ -224,7 +232,7 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
         }
       }
 
-      // fallback: find slide that's not aria-hidden
+      // 2) fallback: find slide that's not aria-hidden
       const visible = slides.find(s => s.getAttribute('aria-hidden') === 'false' || !s.hasAttribute('aria-hidden'));
       if (visible) {
         const el = visible.querySelector('.image-gallery-image') as HTMLElement | null;
@@ -236,7 +244,24 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
       }
     }
 
-    // fallback: match image src to current galleryItems index
+    // 3) reliable fallback: try to match by file name (handles proxy/signed/blobs)
+    const expectedItem = filteredPhotos?.[galleryStartIndex];
+    const expectedName = expectedItem?.['File Name'] ? String(expectedItem['File Name']).replace(/\s+/g, '') : null;
+    if (expectedName) {
+      const imgs = Array.from(document.querySelectorAll('.image-gallery-image')) as HTMLImageElement[];
+      const byName = imgs.find(i => {
+        try {
+          const s = (i.currentSrc || i.src || '').toLowerCase();
+          return s.includes(expectedName!.toLowerCase()) || decodeURIComponent(s).includes(expectedName!.toLowerCase());
+        } catch (e) { return false; }
+      });
+      if (byName) {
+        console.debug('[Gallery] getActiveImageElement -> matched by filename', expectedName, byName.currentSrc || byName.src);
+        return byName as HTMLElement;
+      }
+    }
+
+    // 4) fallback: match image src to current galleryItems index (URL match)
     const expected = galleryItems?.[galleryStartIndex]?.original;
     if (expected) {
       const imgs = Array.from(document.querySelectorAll('.image-gallery-image')) as HTMLImageElement[];
@@ -247,7 +272,7 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
       }
     }
 
-    // last resort: first visible image element
+    // 5) last resort: first visible image element
     const imgs = Array.from(document.querySelectorAll('.image-gallery-image')) as HTMLElement[];
     const visibleImg = imgs.find(i => i.offsetParent !== null && window.getComputedStyle(i).visibility !== 'hidden');
     console.debug('[Gallery] getActiveImageElement -> fallback', visibleImg ? ((visibleImg as HTMLImageElement).currentSrc || (visibleImg as HTMLImageElement).src) : 'none', 'count=', imgs.length);
@@ -328,7 +353,8 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
       translateRef.current.x = 0;
       translateRef.current.y = 0;
     }
-    setImageTransform();
+    // ensure transform is applied to the current active image element (defensive)
+    requestAnimationFrame(() => setImageTransform());
   };
 
   const resetScale = () => {
@@ -338,8 +364,9 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
     setImageTransform();
   };
 
-  // Store drawer open function
+  // Store drawer open function (close gallery first to avoid overlay/input conflicts)
   openDrawerRef.current = () => {
+    setImageGalleryOpen(false);
     setDrawerOpen(true);
   };
 
@@ -404,6 +431,8 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
       setGalleryStartIndex(idx);
       setImageGalleryOpen(true);
       resetScale();
+      // ensure transforms are applied after gallery opens
+      requestAnimationFrame(() => setImageTransform());
     };
     window.addEventListener('open-image-gallery', handler);
     return () => window.removeEventListener('open-image-gallery', handler);
@@ -1053,7 +1082,7 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
 
         {/* React Image Gallery modal (replaces PhotoSwipe for Photos) */}
         {imageGalleryOpen && (
-          <div className="fixed inset-0 z-[99999999] bg-black/90 flex items-center justify-center px-3 sm:px-6 py-4 sm:py-6"
+          <div className="fixed inset-0 z-40 bg-black/90 flex items-center justify-center px-3 sm:px-6 py-4 sm:py-6"
                onTouchStart={(e) => {
                  // Pinch start or double-tap detection *and* pan start when already zoomed
                  if (e.touches && e.touches.length === 2) {
@@ -1270,7 +1299,7 @@ export function GalleryClient({ photos, videos, documents, audios, isAdmin }: Ga
 
       {/* Hidden delete button for modal viewer - triggered by toolbar */}
       {isAdmin && currentFileName && (
-        <div style={{ position: 'absolute', top: 0, left: 0, opacity: 0, pointerEvents: 'all', zIndex: 99999999 }}>
+        <div style={{ position: 'absolute', top: 0, left: 0, opacity: 0, pointerEvents: imageGalleryOpen ? 'none' : 'all', zIndex: 60 }}>
           <DeleteButton fileName={selectedFile?.storedName ?? currentFileName} type="images" />
         </div>
       )}
