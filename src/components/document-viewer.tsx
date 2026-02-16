@@ -1,9 +1,9 @@
 'use client';
 
 import React from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
+import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { ExternalLink } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import type { FileMetadata } from '@/lib/files';
 // PDF rendering: prefer same-origin iframe for stored PDFs (reliable native viewer).
 // Keep `pdf-viewer` component available as a fallback but don't import it by default.
@@ -127,10 +127,23 @@ export function DocumentViewer({ file, children }: DocumentViewerProps) {
     };
   }, [proxySrc]);
 
+  // Render the modal full-bleed with no gaps (occupies entire viewport).
+  const fullBleedStyle: React.CSSProperties = {
+    left: 0,
+    top: 0,
+    transform: 'none',
+    width: '100vw',
+    height: '100vh',
+    maxWidth: 'none',
+    borderRadius: 0,
+    padding: 0,
+    margin: 0,
+  };
+
   return (
     <Dialog>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="max-w-5xl w-[95vw] max-h-[90vh] p-0 overflow-hidden">
+      <DialogContent style={fullBleedStyle} className="w-full h-full m-0 p-0 max-w-none rounded-none overflow-hidden">
         <DialogHeader className="p-4 border-b">
           <div className="flex items-center justify-between w-full gap-4">
             <div>
@@ -142,14 +155,15 @@ export function DocumentViewer({ file, children }: DocumentViewerProps) {
                 <ExternalLink className="w-4 h-4" />
                 <span className="hidden sm:inline">Open externally</span>
               </a>
-              <Button variant="ghost" size="sm" onClick={() => { /* dialog will close via DialogContext */ }}>
-                Close
-              </Button>
+
+              <DialogClose asChild>
+                <Button variant="ghost" size="sm">Close</Button>
+              </DialogClose>
             </div>
           </div>
         </DialogHeader>
 
-        <div className="h-[calc(90vh-72px)] bg-black/5">
+        <div className="h-[calc(100vh-72px)] bg-black/5">
           {isExternal && (
             <div className="px-4 py-2 text-sm text-yellow-800 bg-yellow-50 border-b">
               Preview may be blocked by the remote host — use "Open externally" if it doesn't load.
